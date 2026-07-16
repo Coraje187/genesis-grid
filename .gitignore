@@ -1,0 +1,18 @@
+# Node.js
+node_modules/
+dist/
+
+# Rust/Tauri build files
+src-tauri/target/
+
+# OS/System files
+.DS_Store
+Thumbs.db
+*.local
+*.log
+
+# Private keys / Secrets
+tauri-key
+tauri-key.pub
+*.key
+*.pem

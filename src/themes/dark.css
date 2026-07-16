@@ -1,0 +1,71 @@
+/* Genesis Grid — Dark theme
+   Pulled from the GENESIS GRID LABS banner: void black city, circuit-cyan
+   and neon-magenta signage, ultraviolet haze. */
+
+:root[data-theme="dark"] {
+  --bg: #05060d;
+  --bg-raised: #0c0e1c;
+  --bg-sunken: #020308;
+  --ink: #eaf6ff;
+  --ink-soft: #93a3c2;
+  --border: #1b2340;
+  --accent: #2be9ff;      /* circuit cyan */
+  --accent-2: #ff2ec8;    /* neon magenta */
+  --accent-3: #9b3ffb;    /* ultraviolet */
+  --accent-ink: #04121a;
+  --success: #38f0b0;
+  --warn: #ffb23f;
+  --grid-line: rgba(43, 233, 255, 0.08);
+
+  --settings-tools: #2be9ff;
+  --settings-mcp: #e9ff2b;
+  --settings-skills: #ff2ec8;
+  --settings-telegram: #38f0b0;
+
+  --font-display: "Chakra Petch", "Inter", sans-serif;
+  --font-body: "Inter", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 10px;
+  --radius-lg: 18px;
+  --shadow-card: 0 0 0 1px rgba(43, 233, 255, 0.06), 0 10px 40px rgba(43, 233, 255, 0.08);
+  --glow-cyan: 0 0 12px rgba(43, 233, 255, 0.55);
+  --glow-magenta: 0 0 12px rgba(255, 46, 200, 0.5);
+}
+
+:root[data-theme="dark"] body {
+  background:
+    linear-gradient(180deg, rgba(155, 63, 251, 0.06), transparent 40%),
+    var(--bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Signature element: a scanning circuit-line sweep used behind the
+   hardware-check screen — ties the "Grid" name to a literal animated grid. */
+@keyframes grid-scan {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+.scan-sweep {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.scan-sweep::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
+  box-shadow: var(--glow-cyan);
+  animation: grid-scan 2.4s ease-in-out infinite;
+}
