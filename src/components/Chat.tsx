@@ -72,6 +72,17 @@ export default function Chat({
   const [skillsList, setSkillsList] = useState<{ name: string; content: string }[]>([]);
   const [enabledSkills, setEnabledSkills] = useState<Record<string, boolean>>({});
 
+  const [isLoopMode, setIsLoopMode] = useState(false);
+  const [loopState, setLoopState] = useState<"idle" | "architect" | "cipher">("idle");
+  const [loopAgents, setLoopAgents] = useState<any[]>([]);
+
+  // Load agents for Loop Mode
+  useEffect(() => {
+    invoke<string>("load_agents_config")
+      .then(json => setLoopAgents(JSON.parse(json)))
+      .catch(() => {});
+  }, []);
+
   function refreshSkillsAndTools() {
     const tools = ["list_directory", "read_file_text", "write_file_text", "run_command", "fetch_url"];
     const toolsConfig: Record<string, boolean> = {};
@@ -740,13 +751,74 @@ ${wikiContent}
 
     const fullContent = draft.trim() + promptModifier;
     const userMsg: ChatMessage = { role: "user", content: fullContent };
-    const withUser = [...messages, userMsg, { role: "assistant" as const, content: "" }];
-    setMessages(withUser);
+    
     setDraft("");
     setAttachedFiles([]);
     setSending(true);
 
-    runInference(withUser, userMsg);
+    if (isLoopMode) {
+      runLoopInference(fullContent, attachedFiles);
+    } else {
+      const withUser = [...messages, userMsg, { role: "assistant" as const, content: "" }];
+      setMessages(withUser);
+      runInference(withUser, userMsg);
+    }
+  }
+
+  async function runLoopInference(userText: string, files: any[]) {
+    // Basic hardcoded 3-agent pipeline for demonstration
+    const architect = loopAgents.find(a => a.id === "architect") || { name: "Architect", role: "Planner", model: "genesis" };
+    const oracle = loopAgents.find(a => a.id === "oracle") || { name: "Oracle", role: "Researcher", model: "genesis" };
+    const cipher = loopAgents.find(a => a.id === "cipher") || { name: "Cipher", role: "Coder", model: "genesis" };
+
+    const getModelStr = (agentModel: string) => agentModel === "genesis" ? agentBrain : agentModel;
+
+    setMessages(prev => [
+      ...prev,
+      { role: "user", content: userText },
+      { role: "assistant", content: `**[ORCHESTRATOR]** Loop Mode Engaged.\n> Delegating to **${architect.name}** for planning...` }
+    ]);
+
+    try {
+      // 1. Architect
+      const plan = await invoke<string>("chat_send_sync", {
+        model: getModelStr(architect.model),
+        message: `[System: ${architect.role}]\n\nUser Request: ${userText}\n\nPlease break this down into a plan.`
+      });
+
+      setMessages(prev => [
+        ...prev.slice(0, -1),
+        { role: "assistant", content: `**[ORCHESTRATOR]** ${architect.name} generated a plan.\n> Delegating to **${oracle.name}** for research and analysis...` }
+      ]);
+
+      // 2. Oracle
+      const research = await invoke<string>("chat_send_sync", {
+        model: getModelStr(oracle.model),
+        message: `[System: ${oracle.role}]\n\nArchitect's Plan:\n${plan}\n\nPlease perform necessary analysis/research for this plan.`
+      });
+
+      setMessages(prev => [
+        ...prev.slice(0, -1),
+        { role: "assistant", content: `**[ORCHESTRATOR]** ${oracle.name} finished research.\n> Delegating to **${cipher.name}** for execution...` }
+      ]);
+
+      // 3. Cipher
+      const finalCode = await invoke<string>("chat_send_sync", {
+        model: getModelStr(cipher.model),
+        message: `[System: ${cipher.role}]\n\nArchitect's Plan:\n${plan}\n\nOracle's Research:\n${research}\n\nPlease execute the final task and provide the output to the user.`
+      });
+
+      setMessages(prev => [
+        ...prev.slice(0, -1),
+        { role: "assistant", content: `**${architect.name}'s Plan:**\n${plan}\n\n---\n**${cipher.name}'s Output:**\n${finalCode}` }
+      ]);
+    } catch (e) {
+      setMessages(prev => [
+        ...prev.slice(0, -1),
+        { role: "assistant", content: `**[ORCHESTRATOR ERROR]**\nLoop failed: ${e}` }
+      ]);
+    }
+    setSending(false);
   }
 
   async function handleAbort() {
@@ -783,6 +855,23 @@ ${wikiContent}
             style={{ fontSize: 13, padding: "8px 16px", whiteSpace: "nowrap" }}
           >
             + New Chat
+          </button>
+          <button 
+            className="btn" 
+            onClick={() => setIsLoopMode(!isLoopMode)}
+            style={{ 
+              fontSize: 13, 
+              padding: "8px 16px", 
+              whiteSpace: "nowrap",
+              background: isLoopMode ? "var(--accent)" : "transparent",
+              color: isLoopMode ? "#000" : "var(--accent)",
+              border: "1px solid var(--accent)",
+              fontWeight: "bold",
+              boxShadow: isLoopMode ? "0 0 10px rgba(0, 242, 254, 0.4)" : "none",
+              transition: "all 0.2s ease"
+            }}
+          >
+            {isLoopMode ? "♺ LOOP MODE: ON" : "♺ LOOP MODE: OFF"}
           </button>
           {model === "genesis" ? (
             <div 

@@ -1743,6 +1743,12 @@ fn add_custom_model(model_id: String) -> Result<String, String> {
     pull_model(model_id)
 }
 
+#[tauri::command]
+async fn chat_send_sync(model: String, message: String) -> Result<String, String> {
+    let reply = chat_telegram_model(&model, &message).await;
+    Ok(reply)
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(ChatController {
@@ -1778,6 +1784,7 @@ fn main() {
             save_chat_session,
             delete_chat_session,
             chat_send,
+            chat_send_sync,
             abort_chat,
             open_url,
             load_genesis_wiki,
