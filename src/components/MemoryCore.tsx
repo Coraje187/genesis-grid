@@ -176,6 +176,7 @@ export default function MemoryCore() {
               linkDirectionalParticles={2}
               linkDirectionalParticleSpeed={0.005}
               nodeCanvasObject={(node: any, ctx, globalScale) => {
+                if (typeof node.x !== 'number' || typeof node.y !== 'number') return;
                 const radius = 4;
                 
                 // Deterministic color based on node name
