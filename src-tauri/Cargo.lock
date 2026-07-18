@@ -987,6 +987,7 @@ dependencies = [
  "dirs",
  "futures-util",
  "open 5.4.0",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

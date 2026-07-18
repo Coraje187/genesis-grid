@@ -46,3 +46,21 @@ This document serves as the active project blueprint and system state for **Gene
 1. **Agentic OS Sanitization:** Audit local system scripts, abstracting all hardcoded paths and private variables into standard env variables before creating a public mod/script repository.
 2. **Local Mod Directory Structure:** Organize local mod zips for potential deployment to specialized GitHub Release binaries.
 3. **Responsive Maintenance:** Ensure any future HTML/CSS edits preserve the custom un-croppable background watermarks on the landing page cards.
+
+---
+
+## 6. Auto-Release Workflow Reminder
+Whenever you want to build and publish a new version of Genesis Grid (with Windows `.exe`/`.msi` and Linux `.deb`/`.AppImage` installers automatically compiled and attached):
+1. **Bump Version:** Change the version number in `package.json` and `src-tauri/tauri.conf.json`.
+2. **Commit & Push:** Push changes to GitHub:
+   ```bash
+   git add .
+   git commit -m "Bump version to vX.Y.Z"
+   git push origin master
+   ```
+3. **Push Git Tag:** Create and push a tag to trigger the automatic build runner:
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+This will automatically launch the build runners on GitHub, compile the binaries, sign them using your `TAURI_PRIVATE_KEY` secret, and publish them to your GitHub Releases page!

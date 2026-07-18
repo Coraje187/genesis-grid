@@ -246,3 +246,22 @@ None of these are silent, admin-bypassing installs — each still asks
 for whatever permission the OS normally requires. That's intentional:
 "one click" should mean "no terminal and no separate download page,"
 not "no consent."
+
+### Telegram Bot Bridge & Cloud Credentials
+
+Genesis Grid includes a built-in Telegram Bot Bridge that allows you to message your local or cloud AI models directly from your Telegram app.
+
+#### 1. Setup
+- Navigate to the **Skills & Tools** panel in the app sidebar.
+- Enter your **Telegram Bot Token** (obtainable from [@BotFather](https://t.me/BotFather)).
+- Enter your **Allowed Chat ID** to restrict bot access exclusively to you (obtainable from [@userinfobot](https://t.me/userinfobot)).
+- Choose your **Target Model**:
+  - **Genesis Brain**: Routes queries to your active local Ollama models.
+  - **OpenRouter / OpenAI / Google Gemini / FreeLLMAPI**: Routes queries directly to cloud models using your stored keys.
+- Toggle the bridge **ON**. Detailed execution and polling status logs will print to your console.
+
+#### 2. Usage Notes & Caveats
+- **First Question Initialization**: The very first message you send to the bot might take a few minutes to respond. This occurs because the backend is initializing connection pools, checking local models, or warming up API endpoints.
+- **Typing Status Bubble**: While the bot is processing or generating a reply, it will display a live "typing..." bubble inside Telegram so you know it is actively working on your answer.
+- **Simultaneous Cloud Keys**: You can configure and save API credentials for OpenRouter, OpenAI, Google Gemini, and FreeLLMAPI concurrently in settings. Dedicated "Save" buttons next to each credential input field persist changes instantly with a green confirmation checkmark.
+- **OpenRouter Free Models**: When using OpenRouter, you can select from a dynamic list of currently available free models directly inside the chat interface dropdown, which fetches model metadata in real-time.

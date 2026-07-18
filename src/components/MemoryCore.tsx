@@ -1,84 +1,132 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
+import { open } from "@tauri-apps/api/dialog";
+import ForceGraph2D from "react-force-graph-2d";
+
+interface VaultNode {
+  id: string;
+  name: string;
+  group: number;
+}
+
+interface VaultLink {
+  source: string;
+  target: string;
+}
+
+interface VaultGraph {
+  nodes: VaultNode[];
+  links: VaultLink[];
+}
 
 export default function MemoryCore() {
-  const [wikiContent, setWikiContent] = useState("");
-  const [saveStatus, setSaveStatus] = useState("Saved");
-  const [freeLlmApiKey, setFreeLlmApiKey] = useState("");
-  const [freeLlmApiModel, setFreeLlmApiModel] = useState("");
-  const [compiling, setCompiling] = useState(false);
-  const [compileStatus, setCompileStatus] = useState("");
+  const [vaultPath, setVaultPath] = useState<string>("");
+  const [graphData, setGraphData] = useState<VaultGraph>({ nodes: [], links: [] });
+  const [selectedNode, setSelectedNode] = useState<VaultNode | null>(null);
+  const [fileContent, setFileContent] = useState<string>("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
+  const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Load wiki content
-    invoke<string>("load_genesis_wiki")
-      .then(setWikiContent)
-      .catch(() => {
-        const localWiki = window.localStorage.getItem("genesis_wiki") || "# Genesis Memory Wiki\n\n- User preferences: Developer mode active.\n- Key focus: Speed and premium design aesthetics.\n";
-        setWikiContent(localWiki);
-      });
+    const savedPath = window.localStorage.getItem("genesis_vault_path");
+    if (savedPath) {
+      setVaultPath(savedPath);
+      loadVault(savedPath);
+    }
 
-    // Load settings for the background compiler
-    const localKey = window.localStorage.getItem("freellmapi_unified_key") || "";
-    const localModel = window.localStorage.getItem("freellmapi_default_model") || "";
-    setFreeLlmApiKey(localKey);
-    setFreeLlmApiModel(localModel);
-
-    invoke<any>("load_freellmapi_settings")
-      .then((s) => {
-        const keyVal = s?.unified_key ?? s?.unifiedKey;
-        const modelVal = s?.default_model ?? s?.defaultModel;
-        if (keyVal) setFreeLlmApiKey(keyVal);
-        if (modelVal) setFreeLlmApiModel(modelVal);
-      })
-      .catch(() => {});
+    // Resize observer for graph
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        setContainerDimensions({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight
+        });
+      }
+    };
+    
+    updateDimensions();
+    window.addEventListener("resize", updateDimensions);
+    return () => window.removeEventListener("resize", updateDimensions);
   }, []);
 
-  function handleSave(content: string) {
-    setWikiContent(content);
-    setSaveStatus("Saving…");
-    window.localStorage.setItem("genesis_wiki", content);
-    invoke("save_genesis_wiki", { content })
-      .then(() => setSaveStatus("Saved"))
-      .catch(() => setSaveStatus("Saved locally"));
+  async function handleSelectVault() {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+    });
+    if (selected && !Array.isArray(selected)) {
+      setVaultPath(selected);
+      window.localStorage.setItem("genesis_vault_path", selected);
+      loadVault(selected);
+    }
   }
 
-  async function handleOptimize() {
-    if (!freeLlmApiKey) {
-      setCompileStatus("Configure FreeLLMAPI key in 'Use online instead' first.");
-      return;
-    }
-    setCompiling(true);
-    setCompileStatus("Optimizing context memory…");
-
-    const prompt = `You are the Memory Compiler Core of Genesis. 
-Review the existing Memory Wiki and clean it up. Combine duplicate items, structure notes logically, and optimize formatting.
-
-Existing Memory Wiki:
-"""
-${wikiContent}
-"""
-
-Respond ONLY with the raw updated markdown content. Do not include chat intro/outro, backticks, or code blocks.`;
-
+  async function loadVault(path: string) {
     try {
-      const updated = await invoke<string>("chat_via_freellmapi", {
-        unifiedKey: freeLlmApiKey,
-        unified_key: freeLlmApiKey,
-        model: freeLlmApiModel || "auto",
-        message: prompt,
-      });
-      if (updated && updated.trim() && !updated.startsWith("Error:")) {
-        handleSave(updated.trim());
-        setCompileStatus("Memory Core optimized successfully!");
-      } else {
-        setCompileStatus("Failed to compile: Invalid response.");
-      }
+      const data = await invoke<VaultGraph>("scan_vault", { path });
+      setGraphData(data);
     } catch (e) {
-      setCompileStatus(`Compilation failed: ${e}`);
-    } finally {
-      setCompiling(false);
+      console.error("Failed to load vault:", e);
     }
+  }
+
+  async function handleNodeClick(node: VaultNode) {
+    setSelectedNode(node);
+    try {
+      const content = await invoke<string>("read_vault_file", { path: node.id });
+      setFileContent(content);
+      setIsEditing(false);
+    } catch (e) {
+      setFileContent(`Error loading file: ${e}`);
+    }
+  }
+
+  async function handleSaveFile() {
+    if (!selectedNode) return;
+    setSaveStatus("Saving…");
+    try {
+      await invoke("write_vault_file", { path: selectedNode.id, content: fileContent });
+      setSaveStatus("Saved");
+      setIsEditing(false);
+      // Reload vault to catch any new links
+      loadVault(vaultPath);
+      setTimeout(() => setSaveStatus(""), 2000);
+    } catch (e) {
+      setSaveStatus(`Error: ${e}`);
+    }
+  }
+
+  async function handleCreateNewFile() {
+    const fileName = prompt("Enter new file name (without .md):");
+    if (!fileName) return;
+    
+    // Simple path join based on OS (assuming Windows backslash or forward slash based on vaultPath)
+    const separator = vaultPath.includes("\\") ? "\\" : "/";
+    const newPath = `${vaultPath}${separator}${fileName}.md`;
+    
+    try {
+      await invoke("write_vault_file", { path: newPath, content: `# ${fileName}\n\nStart writing here...` });
+      loadVault(vaultPath);
+    } catch (e) {
+      alert(`Error creating file: ${e}`);
+    }
+  }
+
+  if (!vaultPath) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%" }}>
+        <div style={{ fontSize: 64, marginBottom: 20 }}>🧠</div>
+        <h1 className="page-title">Initialize Memory Core</h1>
+        <p className="page-sub" style={{ textAlign: "center", maxWidth: 400, marginBottom: 30 }}>
+          Genesis Grid uses a local, markdown-based vault to store memories, skills, and projects. Select an empty folder on your computer to serve as your Brain.
+        </p>
+        <button className="btn" onClick={handleSelectVault} style={{ fontSize: 16, padding: "12px 24px" }}>
+          Select Vault Directory
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -87,93 +135,115 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         <div>
           <h1 className="page-title" style={{ marginBottom: 0 }}>Memory Core</h1>
           <p className="page-sub" style={{ marginBottom: 0 }}>
-            Configure and compile the persistent long-term memories for your Genesis agent.
+            Visualizing Vault: <span style={{ fontFamily: "var(--font-mono)", color: "var(--ink)" }}>{vaultPath}</span>
           </p>
         </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>
-            Status: <span style={{ color: "#00f2fe", fontWeight: "bold" }}>● {saveStatus}</span>
-          </span>
-          <button 
-            className="btn" 
-            onClick={handleOptimize}
-            disabled={compiling}
-          >
-            {compiling ? "Optimizing…" : "Optimize memories"}
+        <div style={{ display: "flex", gap: 12 }}>
+          <button className="btn" onClick={handleCreateNewFile} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--ink)" }}>
+            + New Node
+          </button>
+          <button className="btn" onClick={handleSelectVault} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--ink)" }}>
+            Change Vault
           </button>
         </div>
       </div>
 
-      {compileStatus && (
-        <div 
-          className="card" 
-          style={{ 
-            padding: 12, 
-            marginBottom: 16, 
-            fontSize: 13, 
-            borderColor: compiling ? "var(--border)" : "var(--accent)",
-            background: "var(--bg-sunken)",
-            color: "var(--ink)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center"
-          }}
-        >
-          <span>{compileStatus}</span>
-          <button 
-            style={{ background: "none", border: "none", color: "var(--ink-soft)", cursor: "pointer" }}
-            onClick={() => setCompileStatus("")}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0 }}>
-        {/* Editor panel */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          <textarea
-            value={wikiContent}
-            onChange={(e) => handleSave(e.target.value)}
-            placeholder="Write persistent notes, tasks, knowledge bases, or configurations for Genesis Agent here…"
-            style={{
-              flex: 1,
-              padding: 16,
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--border)",
-              background: "var(--bg-sunken)",
-              color: "var(--ink)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 13,
-              resize: "none",
-              lineHeight: 1.6
-            }}
-          />
-        </div>
-
-        {/* Live Preview panel */}
+        {/* Graph View */}
         <div 
-          className="card"
+          ref={containerRef}
           style={{ 
-            flex: 1, 
-            padding: 20, 
+            flex: selectedNode ? 1 : 2, 
+            background: "#0d0f12", 
             borderRadius: "var(--radius-md)", 
-            overflowY: "auto",
-            background: "var(--bg)",
+            overflow: "hidden",
+            position: "relative",
             border: "1px solid var(--border)",
-            fontSize: 14,
-            lineHeight: 1.6
+            transition: "flex 0.3s ease"
           }}
         >
-          <div style={{ borderBottom: "1px solid var(--border)", paddingBottom: 8, marginBottom: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: "bold", textTransform: "uppercase", color: "var(--ink-soft)" }}>
-              Live System Preview
-            </span>
-          </div>
-          <div style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-body)" }}>
-            {wikiContent || <p style={{ color: "var(--ink-soft)" }}>No memory core documents created yet.</p>}
+          {containerDimensions.width > 0 && (
+            <ForceGraph2D
+              width={containerDimensions.width}
+              height={containerDimensions.height}
+              graphData={graphData}
+              nodeLabel="name"
+              nodeColor={() => "#00f2fe"}
+              linkColor={() => "rgba(255, 255, 255, 0.2)"}
+              backgroundColor="#0d0f12"
+              onNodeClick={handleNodeClick}
+              nodeRelSize={6}
+              linkDirectionalParticles={2}
+              linkDirectionalParticleSpeed={0.005}
+            />
+          )}
+          <div style={{ position: "absolute", top: 10, left: 10, color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+            {graphData.nodes.length} nodes | {graphData.links.length} links
           </div>
         </div>
+
+        {/* Editor Panel */}
+        {selectedNode && (
+          <div 
+            className="card"
+            style={{ 
+              flex: 1, 
+              display: "flex", 
+              flexDirection: "column",
+              borderRadius: "var(--radius-md)", 
+              background: "var(--bg-sunken)",
+              border: "1px solid var(--border)",
+              overflow: "hidden",
+              transition: "flex 0.3s ease"
+            }}
+          >
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg)" }}>
+              <div style={{ fontWeight: "bold", fontSize: 14 }}>{selectedNode.name}.md</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {saveStatus && <span style={{ fontSize: 12, color: "var(--accent)" }}>{saveStatus}</span>}
+                {isEditing ? (
+                  <>
+                    <button className="btn" onClick={() => setIsEditing(false)} style={{ padding: "4px 8px", fontSize: 12, background: "transparent", border: "1px solid var(--border)", color: "var(--ink)" }}>Cancel</button>
+                    <button className="btn" onClick={handleSaveFile} style={{ padding: "4px 8px", fontSize: 12 }}>Save</button>
+                  </>
+                ) : (
+                  <button className="btn" onClick={() => setIsEditing(true)} style={{ padding: "4px 8px", fontSize: 12 }}>Edit</button>
+                )}
+                <button 
+                  onClick={() => setSelectedNode(null)}
+                  style={{ background: "none", border: "none", color: "var(--ink-soft)", cursor: "pointer", marginLeft: 8 }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            <div style={{ flex: 1, padding: 16, overflowY: "auto" }}>
+              {isEditing ? (
+                <textarea
+                  value={fileContent}
+                  onChange={(e) => setFileContent(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 13,
+                    resize: "none",
+                    outline: "none",
+                    lineHeight: 1.6
+                  }}
+                />
+              ) : (
+                <div style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-body)", fontSize: 14, lineHeight: 1.6 }}>
+                  {fileContent || <span style={{ color: "var(--ink-soft)" }}>Empty file.</span>}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

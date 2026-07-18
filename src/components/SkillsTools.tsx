@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
+import { useTranslation } from "react-i18next";
 
 interface SkillFile {
   name: string;
@@ -18,6 +19,7 @@ interface McpConfig {
 }
 
 export default function SkillsTools() {
+  const { t, i18n } = useTranslation();
   const [skills, setSkills] = useState<SkillFile[]>([]);
   const [enabledTools, setEnabledTools] = useState<Record<string, boolean>>({});
   const [enabledSkills, setEnabledSkills] = useState<Record<string, boolean>>({});
@@ -46,9 +48,157 @@ export default function SkillsTools() {
   const [tgModel, setTgModel] = useState("genesis");
   const [tgRunning, setTgRunning] = useState(false);
   const [tgStatusMsg, setTgStatusMsg] = useState("");
+
+  // Simultaneous Cloud & Fallback settings
+  const [unifiedKey, setUnifiedKey] = useState("");
+  const [defaultModel, setDefaultModel] = useState("");
+  const [openrouterKey, setOpenrouterKey] = useState("");
+  const [openrouterModel, setOpenrouterModel] = useState("");
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [openaiModel, setOpenaiModel] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiModel, setGeminiModel] = useState("");
+  const [customKey, setCustomKey] = useState("");
+  const [customUrl, setCustomUrl] = useState("");
+  const [cloudSaveSuccess, setCloudSaveSuccess] = useState(false);
+  const [cloudSaveError, setCloudSaveError] = useState("");
+
+  const latestSettingsRef = useRef({
+    unifiedKey: "", defaultModel: "", openrouterKey: "", openrouterModel: "", openaiKey: "", openaiModel: "", geminiKey: "", geminiModel: "", customKey: "", customUrl: ""
+  });
+
+  useEffect(() => {
+    latestSettingsRef.current = {
+      unifiedKey, defaultModel, openrouterKey, openrouterModel, openaiKey, openaiModel, geminiKey, geminiModel, customKey, customUrl
+    };
+  }, [unifiedKey, defaultModel, openrouterKey, openrouterModel, openaiKey, openaiModel, geminiKey, geminiModel, customKey, customUrl]);
   
   // Selected skill to view
   const [viewingSkill, setViewingSkill] = useState<SkillFile | null>(null);
+
+  const hasLoadedRef = useRef(false);
+
+  function getLatestSettings() {
+    const orKeyEl = document.getElementById("settings-openrouter-key") as HTMLInputElement;
+    const oaKeyEl = document.getElementById("settings-openai-key") as HTMLInputElement;
+    const gemKeyEl = document.getElementById("settings-gemini-key") as HTMLInputElement;
+    const custKeyEl = document.getElementById("settings-custom-key") as HTMLInputElement;
+    const custUrlEl = document.getElementById("settings-custom-url") as HTMLInputElement;
+    const uKeyEl = document.getElementById("settings-unified-key") as HTMLInputElement;
+    const dModelEl = document.getElementById("settings-default-model") as HTMLInputElement;
+
+    const ref = latestSettingsRef.current;
+
+    return {
+      unifiedKey: uKeyEl ? uKeyEl.value : ref.unifiedKey,
+      defaultModel: dModelEl ? dModelEl.value : ref.defaultModel,
+      openrouterKey: orKeyEl ? orKeyEl.value : ref.openrouterKey,
+      openrouterModel: ref.openrouterModel,
+      openaiKey: oaKeyEl ? oaKeyEl.value : ref.openaiKey,
+      openaiModel: ref.openaiModel,
+      geminiKey: gemKeyEl ? gemKeyEl.value : ref.geminiKey,
+      geminiModel: ref.geminiModel,
+      customKey: custKeyEl ? custKeyEl.value : ref.customKey,
+      customUrl: custUrlEl ? custUrlEl.value : ref.customUrl,
+    };
+  }
+
+  useEffect(() => {
+    return () => {
+      if (!hasLoadedRef.current) return;
+      // Auto-save when leaving settings screen
+      const current = getLatestSettings();
+      window.localStorage.setItem("freellmapi_unified_key", current.unifiedKey);
+      window.localStorage.setItem("freellmapi_default_model", current.defaultModel);
+      window.localStorage.setItem("freellmapi_openrouter_key", current.openrouterKey);
+      window.localStorage.setItem("freellmapi_openrouter_model", current.openrouterModel);
+      window.localStorage.setItem("freellmapi_openai_key", current.openaiKey);
+      window.localStorage.setItem("freellmapi_openai_model", current.openaiModel);
+      window.localStorage.setItem("freellmapi_gemini_key", current.geminiKey);
+      window.localStorage.setItem("freellmapi_gemini_model", current.geminiModel);
+      window.localStorage.setItem("freellmapi_custom_key", current.customKey);
+      window.localStorage.setItem("freellmapi_custom_url", current.customUrl);
+
+      invoke("save_freellmapi_settings", {
+        unifiedKey: current.unifiedKey,
+        unified_key: current.unifiedKey,
+        defaultModel: current.defaultModel,
+        default_model: current.defaultModel,
+        openrouterKey: current.openrouterKey,
+        openrouter_key: current.openrouterKey,
+        openrouterModel: current.openrouterModel,
+        openrouter_model: current.openrouterModel,
+        openaiKey: current.openaiKey,
+        openai_key: current.openaiKey,
+        openaiModel: current.openaiModel,
+        openai_model: current.openaiModel,
+        geminiKey: current.geminiKey,
+        gemini_key: current.geminiKey,
+        geminiModel: current.geminiModel,
+        gemini_model: current.geminiModel,
+        customKey: current.customKey,
+        custom_key: current.customKey,
+        customUrl: current.customUrl,
+        custom_url: current.customUrl,
+        mode: "proxy",
+        provider: "openrouter",
+        directApiKey: current.openrouterKey,
+        direct_api_key: current.openrouterKey,
+      }).catch(() => {});
+    };
+  }, []);
+
+  function handleBlurSave() {
+    if (!hasLoadedRef.current) return;
+    const current = getLatestSettings();
+
+    // Sync to state to keep UI in sync
+    setUnifiedKey(current.unifiedKey);
+    setDefaultModel(current.defaultModel);
+    setOpenrouterKey(current.openrouterKey);
+    setOpenaiKey(current.openaiKey);
+    setGeminiKey(current.geminiKey);
+    setCustomKey(current.customKey);
+    setCustomUrl(current.customUrl);
+
+    window.localStorage.setItem("freellmapi_unified_key", current.unifiedKey);
+    window.localStorage.setItem("freellmapi_default_model", current.defaultModel);
+    window.localStorage.setItem("freellmapi_openrouter_key", current.openrouterKey);
+    window.localStorage.setItem("freellmapi_openrouter_model", current.openrouterModel);
+    window.localStorage.setItem("freellmapi_openai_key", current.openaiKey);
+    window.localStorage.setItem("freellmapi_openai_model", current.openaiModel);
+    window.localStorage.setItem("freellmapi_gemini_key", current.geminiKey);
+    window.localStorage.setItem("freellmapi_gemini_model", current.geminiModel);
+    window.localStorage.setItem("freellmapi_custom_key", current.customKey);
+    window.localStorage.setItem("freellmapi_custom_url", current.customUrl);
+
+    invoke("save_freellmapi_settings", {
+      unifiedKey: current.unifiedKey,
+      unified_key: current.unifiedKey,
+      defaultModel: current.defaultModel,
+      default_model: current.defaultModel,
+      openrouterKey: current.openrouterKey,
+      openrouter_key: current.openrouterKey,
+      openrouterModel: current.openrouterModel,
+      openrouter_model: current.openrouterModel,
+      openaiKey: current.openaiKey,
+      openai_key: current.openaiKey,
+      openaiModel: current.openaiModel,
+      openai_model: current.openaiModel,
+      geminiKey: current.geminiKey,
+      gemini_key: current.geminiKey,
+      geminiModel: current.geminiModel,
+      gemini_model: current.geminiModel,
+      customKey: current.customKey,
+      custom_key: current.customKey,
+      customUrl: current.customUrl,
+      custom_url: current.customUrl,
+      mode: "proxy",
+      provider: "openrouter",
+      directApiKey: current.openrouterKey,
+      direct_api_key: current.openrouterKey,
+    }).catch(() => {});
+  }
 
   const defaultTools = [
     { id: "list_directory", name: "List Directory", desc: "Allows listing files and directories inside a specified path." },
@@ -90,6 +240,28 @@ export default function SkillsTools() {
     invoke<boolean>("telegram_bot_status")
       .then(setTgRunning)
       .catch(() => {});
+
+    // Load Cloud Provider settings
+    invoke<any>("load_freellmapi_settings")
+      .then((s) => {
+        if (s) {
+          setUnifiedKey(s.unified_key || s.unifiedKey || "");
+          setDefaultModel(s.default_model || s.defaultModel || "");
+          setOpenrouterKey(s.openrouter_key || s.openrouterKey || "");
+          setOpenrouterModel(s.openrouter_model || s.openrouterModel || "");
+          setOpenaiKey(s.openai_key || s.openaiKey || "");
+          setOpenaiModel(s.openai_model || s.openaiModel || "");
+          setGeminiKey(s.gemini_key || s.geminiKey || "");
+          setGeminiModel(s.gemini_model || s.geminiModel || "");
+          setCustomKey(s.custom_key || s.customKey || "");
+          setCustomUrl(s.custom_url || s.customUrl || "");
+        }
+        hasLoadedRef.current = true;
+      })
+      .catch((err) => {
+        console.error("Failed to load cloud settings", err);
+        hasLoadedRef.current = true;
+      });
   }, []);
 
   function loadSkillsList() {
@@ -163,6 +335,71 @@ export default function SkillsTools() {
     const nextConfig = { ...mcpConfig };
     delete nextConfig.mcpServers[serverName];
     saveMcpConfigData(nextConfig);
+  }
+
+  function handleSaveCloudSettings(e: React.FormEvent) {
+    e.preventDefault();
+    setCloudSaveError("");
+    setCloudSaveSuccess(false);
+
+    const current = getLatestSettings();
+
+    // Sync to state to keep UI inputs in sync
+    setUnifiedKey(current.unifiedKey);
+    setDefaultModel(current.defaultModel);
+    setOpenrouterKey(current.openrouterKey);
+    setOpenaiKey(current.openaiKey);
+    setGeminiKey(current.geminiKey);
+    setCustomKey(current.customKey);
+    setCustomUrl(current.customUrl);
+
+    // Save to localStorage immediately for fast frontend sync
+    window.localStorage.setItem("freellmapi_unified_key", current.unifiedKey);
+    window.localStorage.setItem("freellmapi_default_model", current.defaultModel);
+    window.localStorage.setItem("freellmapi_openrouter_key", current.openrouterKey);
+    window.localStorage.setItem("freellmapi_openrouter_model", current.openrouterModel);
+    window.localStorage.setItem("freellmapi_openai_key", current.openaiKey);
+    window.localStorage.setItem("freellmapi_openai_model", current.openaiModel);
+    window.localStorage.setItem("freellmapi_gemini_key", current.geminiKey);
+    window.localStorage.setItem("freellmapi_gemini_model", current.geminiModel);
+    window.localStorage.setItem("freellmapi_custom_key", current.customKey);
+    window.localStorage.setItem("freellmapi_custom_url", current.customUrl);
+
+    invoke("save_freellmapi_settings", {
+      unifiedKey: current.unifiedKey,
+      unified_key: current.unifiedKey,
+      defaultModel: current.defaultModel,
+      default_model: current.defaultModel,
+      openrouterKey: current.openrouterKey,
+      openrouter_key: current.openrouterKey,
+      openrouterModel: current.openrouterModel,
+      openrouter_model: current.openrouterModel,
+      openaiKey: current.openaiKey,
+      openai_key: current.openaiKey,
+      openaiModel: current.openaiModel,
+      openai_model: current.openaiModel,
+      geminiKey: current.geminiKey,
+      gemini_key: current.geminiKey,
+      geminiModel: current.geminiModel,
+      gemini_model: current.geminiModel,
+      customKey: current.customKey,
+      custom_key: current.customKey,
+      customUrl: current.customUrl,
+      custom_url: current.customUrl,
+      // Fallbacks
+      mode: "proxy",
+      provider: "openrouter",
+      directApiKey: current.openrouterKey,
+      direct_api_key: current.openrouterKey,
+    })
+      .then(() => {
+        setCloudSaveSuccess(true);
+        triggerStorageEvent();
+        setTimeout(() => setCloudSaveSuccess(false), 3000);
+      })
+      .catch((err) => {
+        setCloudSaveError(`Failed to save settings: ${err}`);
+      });
   }
 
   function handleCreateSkill(e: React.FormEvent) {
@@ -318,11 +555,44 @@ export default function SkillsTools() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto" }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 className="page-title">Settings</h1>
-        <p className="page-sub">
-          Control the capabilities of the Genesis local agent. Enabled tools, skills, and MCP servers are injected into the agent's prompt context.
-        </p>
+      <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1 className="page-title">{t("settings")}</h1>
+          <p className="page-sub">
+            Control the capabilities of the Genesis local agent. Enabled tools, skills, and MCP servers are injected into the agent's prompt context.
+          </p>
+        </div>
+        
+        {/* Language Selector */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--bg-sunken)", padding: "8px 12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
+          <span style={{ fontSize: 13, fontWeight: "bold", color: "var(--ink-soft)" }}>{t("language")}:</span>
+          <select 
+            value={i18n.language} 
+            onChange={(e) => {
+              const newLang = e.target.value;
+              i18n.changeLanguage(newLang);
+              window.localStorage.setItem('genesis_language', newLang);
+            }}
+            style={{
+              padding: "4px 8px",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--border)",
+              background: "var(--bg)",
+              color: "var(--ink)",
+              fontFamily: "var(--font-sans)",
+              fontSize: 13,
+              cursor: "pointer"
+            }}
+          >
+            <option value="en">English (US)</option>
+            <option value="es">Español (ES)</option>
+            <option value="zh">中文 (ZH)</option>
+            <option value="fr">Français (FR)</option>
+            <option value="de">Deutsch (DE)</option>
+            <option value="ja">日本語 (JA)</option>
+            <option value="hi">हिन्दी (HI)</option>
+          </select>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -372,6 +642,196 @@ export default function SkillsTools() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Cloud & Fallback Models Card */}
+          <div className="card" style={{ padding: 20 }}>
+            <h2 style={{ fontSize: 16, color: "var(--accent)", marginBottom: 12, borderBottom: "1px solid var(--border)", paddingBottom: 6 }}>
+              🌐 Cloud & Fallback Models
+            </h2>
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 16 }}>
+              Configure direct API integrations and local proxies. All keys are saved concurrently, enabling instant switching.
+            </p>
+            <form onSubmit={handleSaveCloudSettings} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              
+              {/* Direct APIs Section */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <h3 style={{ fontSize: 14, margin: "0 0 4px 0", color: "var(--accent)", opacity: 0.9 }}>⚡ Direct Cloud Keys</h3>
+                
+                <div>
+                  <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>OpenRouter API Key</label>
+                  <input 
+                    id="settings-openrouter-key"
+                    type="password" 
+                    value={openrouterKey}
+                    onChange={(e) => setOpenrouterKey(e.target.value)}
+                    onBlur={handleBlurSave}
+                    placeholder="Enter OpenRouter API key (sk-or-...)"
+                    style={{
+                      width: "100%",
+                      padding: 8,
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-sunken)",
+                      color: "var(--ink)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 13
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>OpenAI API Key</label>
+                  <input 
+                    id="settings-openai-key"
+                    type="password" 
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                    onBlur={handleBlurSave}
+                    placeholder="Enter OpenAI API key (sk-proj-...)"
+                    style={{
+                      width: "100%",
+                      padding: 8,
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-sunken)",
+                      color: "var(--ink)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 13
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>Google Gemini API Key</label>
+                  <input 
+                    id="settings-gemini-key"
+                    type="password" 
+                    value={geminiKey}
+                    onChange={(e) => setGeminiKey(e.target.value)}
+                    onBlur={handleBlurSave}
+                    placeholder="Enter Gemini API key (AIzaSy...)"
+                    style={{
+                      width: "100%",
+                      padding: 8,
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-sunken)",
+                      color: "var(--ink)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 13
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>Custom Endpoint Base URL</label>
+                    <input 
+                      id="settings-custom-url"
+                      type="text" 
+                      value={customUrl}
+                      onChange={(e) => setCustomUrl(e.target.value)}
+                      onBlur={handleBlurSave}
+                      placeholder="https://api.example.com/v1/chat/completions"
+                      style={{
+                        width: "100%",
+                        padding: 8,
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border)",
+                        background: "var(--bg-sunken)",
+                        color: "var(--ink)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 13
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>Custom API Key</label>
+                    <input 
+                      id="settings-custom-key"
+                      type="password" 
+                      value={customKey}
+                      onChange={(e) => setCustomKey(e.target.value)}
+                      onBlur={handleBlurSave}
+                      placeholder="Custom provider API Key"
+                      style={{
+                        width: "100%",
+                        padding: 8,
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border)",
+                        background: "var(--bg-sunken)",
+                        color: "var(--ink)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 13
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+
+              {/* Local Proxy Section */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <h3 style={{ fontSize: 14, margin: "0 0 4px 0", color: "var(--accent)", opacity: 0.9 }}>🔌 Local Proxy (FreeLLMAPI)</h3>
+                
+                <div>
+                  <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>FreeLLMAPI Unified Key</label>
+                  <input 
+                    id="settings-unified-key"
+                    type="text" 
+                    value={unifiedKey}
+                    onChange={(e) => setUnifiedKey(e.target.value)}
+                    onBlur={handleBlurSave}
+                    placeholder="freellmapi-... (from keys dashboard)"
+                    style={{
+                      width: "100%",
+                      padding: 8,
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-sunken)",
+                      color: "var(--ink)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 13
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>FreeLLMAPI Default Model</label>
+                  <input 
+                    id="settings-default-model"
+                    type="text" 
+                    value={defaultModel}
+                    onChange={(e) => setDefaultModel(e.target.value)}
+                    onBlur={handleBlurSave}
+                    placeholder="e.g. auto, or local proxy routing model"
+                    style={{
+                      width: "100%",
+                      padding: 8,
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-sunken)",
+                      color: "var(--ink)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 13
+                    }}
+                  />
+                </div>
+              </div>
+
+              {cloudSaveError && (
+                <div style={{ fontSize: 12, color: "var(--warn)", marginTop: 4 }}>{cloudSaveError}</div>
+              )}
+              {cloudSaveSuccess && (
+                <div style={{ fontSize: 12, color: "var(--success)", marginTop: 4 }}>✓ Settings saved successfully!</div>
+              )}
+
+              <button type="submit" className="btn" style={{ alignSelf: "flex-end", marginTop: 8 }}>
+                Save Cloud Settings
+              </button>
+            </form>
           </div>
 
           {/* Telegram Bot Bridge Card */}
@@ -443,6 +903,9 @@ export default function SkillsTools() {
                   {installedModels.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
+                  <option value="openrouter">OpenRouter (online)</option>
+                  <option value="openai">OpenAI (online)</option>
+                  <option value="gemini">Google Gemini (online)</option>
                   <option value="freellmapi">FreeLLMAPI (online)</option>
                 </select>
               </div>

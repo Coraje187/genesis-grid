@@ -4,6 +4,7 @@ import App from "./App";
 import "./themes/base.css";
 import "./themes/light.css";
 import "./themes/dark.css";
+import "./i18n";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

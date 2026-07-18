@@ -26,6 +26,9 @@ export default function OnlineFallback() {
   const [testMessage, setTestMessage] = useState("Say hello in five words.");
   const [testReply, setTestReply] = useState("");
   const [testing, setTesting] = useState(false);
+  const [openrouterKey, setOpenrouterKey] = useState("");
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
 
   function refreshStatus() {
     invoke<FreeLlmApiStatus>("freellmapi_status").then(setStatus).catch(() => {});
@@ -33,23 +36,42 @@ export default function OnlineFallback() {
 
   useEffect(() => {
     refreshStatus();
-    // Load from localStorage first as a fast/offline fallback
-    const localKey = window.localStorage.getItem("freellmapi_unified_key") || "";
-    const localModel = window.localStorage.getItem("freellmapi_default_model") || "";
-    setUnifiedKey(localKey);
-    setDefaultModel(localModel);
+    const loadSettings = () => {
+      const localKey = window.localStorage.getItem("freellmapi_unified_key") || "";
+      const localModel = window.localStorage.getItem("freellmapi_default_model") || "";
+      const localOpenrouterKey = window.localStorage.getItem("freellmapi_openrouter_key") || "";
+      const localOpenaiKey = window.localStorage.getItem("freellmapi_openai_key") || "";
+      const localGeminiKey = window.localStorage.getItem("freellmapi_gemini_key") || "";
+
+      setUnifiedKey(localKey);
+      setDefaultModel(localModel);
+      setOpenrouterKey(localOpenrouterKey);
+      setOpenaiKey(localOpenaiKey);
+      setGeminiKey(localGeminiKey);
+    };
+
+    loadSettings();
 
     invoke<any>("load_freellmapi_settings")
       .then((s) => {
-        const keyVal = s?.unified_key ?? s?.unifiedKey;
-        const modelVal = s?.default_model ?? s?.defaultModel;
-        if (keyVal) {
+        if (s) {
+          const keyVal = s.unified_key ?? s.unifiedKey ?? "";
+          const modelVal = s.default_model ?? s.defaultModel ?? "";
+          const orKey = s.openrouter_key ?? s.openrouterKey ?? "";
+          const oaKey = s.openai_key ?? s.openaiKey ?? "";
+          const gemKey = s.gemini_key ?? s.geminiKey ?? "";
+
           setUnifiedKey(keyVal);
-          window.localStorage.setItem("freellmapi_unified_key", keyVal);
-        }
-        if (modelVal) {
           setDefaultModel(modelVal);
+          setOpenrouterKey(orKey);
+          setOpenaiKey(oaKey);
+          setGeminiKey(gemKey);
+
+          window.localStorage.setItem("freellmapi_unified_key", keyVal);
           window.localStorage.setItem("freellmapi_default_model", modelVal);
+          window.localStorage.setItem("freellmapi_openrouter_key", orKey);
+          window.localStorage.setItem("freellmapi_openai_key", oaKey);
+          window.localStorage.setItem("freellmapi_gemini_key", gemKey);
         }
       })
       .catch((e) => {
@@ -63,7 +85,10 @@ export default function OnlineFallback() {
         refreshStatus();
       }
     });
+
+    window.addEventListener("storage", loadSettings);
     return () => {
+      window.removeEventListener("storage", loadSettings);
       unlisten.then((f) => f());
     };
   }, []);
@@ -73,11 +98,38 @@ export default function OnlineFallback() {
     window.localStorage.setItem("freellmapi_unified_key", key);
     window.localStorage.setItem("freellmapi_default_model", model);
 
+    const orKey = window.localStorage.getItem("freellmapi_openrouter_key") || "";
+    const orModel = window.localStorage.getItem("freellmapi_openrouter_model") || "";
+    const oaKey = window.localStorage.getItem("freellmapi_openai_key") || "";
+    const oaModel = window.localStorage.getItem("freellmapi_openai_model") || "";
+    const gemKey = window.localStorage.getItem("freellmapi_gemini_key") || "";
+    const gemModel = window.localStorage.getItem("freellmapi_gemini_model") || "";
+    const custKey = window.localStorage.getItem("freellmapi_custom_key") || "";
+    const custUrl = window.localStorage.getItem("freellmapi_custom_url") || "";
+
     invoke("save_freellmapi_settings", { 
       unifiedKey: key, 
       unified_key: key, 
       defaultModel: model, 
-      default_model: model 
+      default_model: model,
+      openrouterKey: orKey,
+      openrouter_key: orKey,
+      openrouterModel: orModel,
+      openrouter_model: orModel,
+      openaiKey: oaKey,
+      openai_key: oaKey,
+      openaiModel: oaModel,
+      openai_model: oaModel,
+      geminiKey: gemKey,
+      gemini_key: gemKey,
+      geminiModel: gemModel,
+      gemini_model: gemModel,
+      customKey: custKey,
+      custom_key: custKey,
+      customUrl: custUrl,
+      custom_url: custUrl,
+      mode: "proxy",
+      provider: "freellmapi"
     })
       .then(() => {
         setSettingsError("");
@@ -127,6 +179,7 @@ export default function OnlineFallback() {
   }
 
   const prereqsMissing = status && (!status.node_installed || !status.git_installed);
+  const directConfigured = !!(openrouterKey || openaiKey || geminiKey);
 
   return (
     <div>
@@ -137,6 +190,17 @@ export default function OnlineFallback() {
         (Google, Groq, and others). It's self-hosted per person, so it stays
         free and nothing is shared between you and your friends.
       </p>
+
+      {directConfigured && (
+        <div className="card" style={{ background: "rgba(var(--accent-rgb), 0.1)", borderColor: "var(--accent)", marginBottom: 16 }}>
+          <span style={{ fontSize: 14, fontWeight: "bold", display: "block", marginBottom: 6, color: "var(--accent)" }}>
+            ✨ Direct Cloud Fallbacks Configured
+          </span>
+          <p style={{ margin: 0, fontSize: 13, color: "var(--ink-soft)" }}>
+            Direct connections for {openrouterKey && "OpenRouter "} {openaiKey && "OpenAI "} {geminiKey && "Gemini "} are active. You can select them directly in the Chat dropdown as online fallback options without needing a local proxy!
+          </p>
+        </div>
+      )}
 
       <div className="card">
         {!status ? (

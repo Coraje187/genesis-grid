@@ -523,41 +523,182 @@ fn open_freellmapi_dashboard() -> Result<(), String> {
 /// person pick which underlying provider/model FreeLLMAPI should route to
 /// (its own dashboard lists the available names); empty defaults to "auto".
 #[tauri::command]
-async fn chat_via_freellmapi(unified_key: String, model: String, message: String) -> Result<String, String> {
+async fn chat_via_cloud(provider: String, model: String, message: String) -> Result<String, String> {
+    let settings = load_freellmapi_settings();
+    
+    if provider == "freellmapi" {
+        let client = reqwest::Client::new();
+        let unified_key = settings.unified_key;
+        if unified_key.trim().is_empty() {
+            return Err("FreeLLMAPI unified key is missing. Please set it in Settings.".to_string());
+        }
+        let model = if model.trim().is_empty() { 
+            if settings.default_model.trim().is_empty() {
+                "auto".to_string()
+            } else {
+                settings.default_model
+            }
+        } else { 
+            model 
+        };
+        let body = serde_json::json!({
+            "model": model,
+            "messages": [{"role": "user", "content": message}]
+        });
+
+        let resp = client
+            .post("http://localhost:3001/v1/chat/completions")
+            .bearer_auth(unified_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Couldn't reach FreeLLMAPI: {e}"))?;
+
+        let status = resp.status();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+
+        if !status.is_success() {
+            return Err(format!("FreeLLMAPI returned {status}: {text}"));
+        }
+
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| format!("Couldn't parse FreeLLMAPI response ({e}): {text}"))?;
+
+        if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
+            return Ok(content.to_string());
+        }
+        if let Some(err_msg) = json["error"]["message"].as_str() {
+            return Err(format!("FreeLLMAPI error: {err_msg}"));
+        }
+        return Err(format!("Unexpected response shape from FreeLLMAPI: {text}"));
+    }
+
+    // Direct Cloud integrations
+    let api_key = match provider.as_str() {
+        "openrouter" => settings.openrouter_key.clone().or(settings.direct_api_key.clone()).unwrap_or_default(),
+        "openai" => settings.openai_key.clone().unwrap_or_default(),
+        "gemini" => settings.gemini_key.clone().unwrap_or_default(),
+        "custom" => settings.custom_key.clone().unwrap_or_default(),
+        _ => "".to_string()
+    };
+
+    if api_key.trim().is_empty() {
+        return Err(format!("API key for {provider} is missing. Please configure it in Settings."));
+    }
+
     let client = reqwest::Client::new();
-    let model = if model.trim().is_empty() { "auto".to_string() } else { model };
+    
+    // Choose model dynamically
+    let model = if model.trim().is_empty() {
+        match provider.as_str() {
+            "openrouter" => settings.openrouter_model.clone().unwrap_or_else(|| "auto".to_string()),
+            "openai" => settings.openai_model.clone().unwrap_or_else(|| "gpt-4o-mini".to_string()),
+            "gemini" => settings.gemini_model.clone().unwrap_or_else(|| "gemini-1.5-flash".to_string()),
+            _ => "auto".to_string()
+        }
+    } else {
+        model
+    };
+
+    let endpoint = match provider.as_str() {
+        "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
+        "openai" => "https://api.openai.com/v1/chat/completions".to_string(),
+        "gemini" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string(),
+        "custom" => {
+            let custom_url = settings.custom_url.clone().unwrap_or_default();
+            if custom_url.trim().is_empty() {
+                return Err("Custom provider selected but base URL is missing.".to_string());
+            }
+            custom_url
+        }
+        _ => "https://openrouter.ai/api/v1/chat/completions".to_string()
+    };
+
     let body = serde_json::json!({
         "model": model,
         "messages": [{"role": "user", "content": message}]
     });
 
-    let resp = client
-        .post("http://localhost:3001/v1/chat/completions")
-        .bearer_auth(unified_key)
+    let mut request = client.post(&endpoint).bearer_auth(api_key);
+
+    if provider == "openrouter" {
+        request = request
+            .header("HTTP-Referer", "https://genesisgridlabs.xyz")
+            .header("X-Title", "Genesis Grid");
+    }
+
+    let resp = request
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Couldn't reach FreeLLMAPI: {e}"))?;
+        .map_err(|e| format!("Couldn't reach provider: {e}"))?;
 
     let status = resp.status();
     let text = resp.text().await.map_err(|e| e.to_string())?;
 
     if !status.is_success() {
-        return Err(format!("FreeLLMAPI returned {status}: {text}"));
+        return Err(format!("Provider returned status {status}: {text}"));
     }
 
-    let json: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("Couldn't parse FreeLLMAPI's response ({e}): {text}"))?;
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Couldn't parse provider response ({e}): {text}"))?;
 
     if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
         return Ok(content.to_string());
     }
-    // Some proxies report errors with a 200 status and an "error" field
-    // instead of an HTTP error code — surface that message if present.
     if let Some(err_msg) = json["error"]["message"].as_str() {
-        return Err(format!("FreeLLMAPI error: {err_msg}"));
+        return Err(format!("Provider error: {err_msg}"));
     }
-    Err(format!("Unexpected response shape from FreeLLMAPI: {text}"))
+    Err(format!("Unexpected response shape from provider: {text}"))
+}
+
+#[tauri::command]
+async fn chat_via_freellmapi(_unified_key: String, model: String, message: String) -> Result<String, String> {
+    let settings = load_freellmapi_settings();
+    let mode = settings.mode.unwrap_or_else(|| "proxy".to_string());
+    let provider = if mode == "direct" {
+        settings.provider.unwrap_or_else(|| "openrouter".to_string())
+    } else {
+        "freellmapi".to_string()
+    };
+    chat_via_cloud(provider, model, message).await
+}
+
+#[tauri::command]
+async fn fetch_openrouter_free_models() -> Result<Vec<serde_json::Value>, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://openrouter.ai/api/v1/models")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch OpenRouter models: {e}"))?;
+        
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse OpenRouter models response: {e}"))?;
+        
+    let mut free_models = Vec::new();
+    if let Some(data) = json["data"].as_array() {
+        for m in data {
+            let id = m["id"].as_str().unwrap_or("");
+            let is_free = id.contains(":free") || 
+                m["pricing"]["prompt"].as_str().unwrap_or("") == "0" || 
+                m["pricing"]["prompt"].as_str().unwrap_or("") == "0.0" ||
+                m["pricing"]["prompt"].as_f64().unwrap_or(1.0) == 0.0;
+                
+            if is_free {
+                free_models.push(m.clone());
+            }
+        }
+    }
+    
+    free_models.sort_by(|a, b| {
+        let name_a = a["name"].as_str().unwrap_or("");
+        let name_b = b["name"].as_str().unwrap_or("");
+        name_a.cmp(name_b)
+    });
+    
+    Ok(free_models)
 }
 
 // ---- FreeLLMAPI settings (shared between the Chat screen and the "Use online instead" screen) ----
@@ -566,6 +707,17 @@ async fn chat_via_freellmapi(unified_key: String, model: String, message: String
 struct FreeLlmApiSettings {
     unified_key: String,
     default_model: String,
+    mode: Option<String>,
+    provider: Option<String>,
+    direct_api_key: Option<String>,
+    custom_url: Option<String>,
+    openrouter_key: Option<String>,
+    openrouter_model: Option<String>,
+    openai_key: Option<String>,
+    openai_model: Option<String>,
+    gemini_key: Option<String>,
+    gemini_model: Option<String>,
+    custom_key: Option<String>,
 }
 
 fn freellmapi_settings_file() -> std::path::PathBuf {
@@ -581,9 +733,37 @@ fn load_freellmapi_settings() -> FreeLlmApiSettings {
 }
 
 #[tauri::command]
-fn save_freellmapi_settings(unified_key: String, default_model: String) -> Result<(), String> {
+fn save_freellmapi_settings(
+    unified_key: String,
+    default_model: String,
+    mode: Option<String>,
+    provider: Option<String>,
+    direct_api_key: Option<String>,
+    custom_url: Option<String>,
+    openrouter_key: Option<String>,
+    openrouter_model: Option<String>,
+    openai_key: Option<String>,
+    openai_model: Option<String>,
+    gemini_key: Option<String>,
+    gemini_model: Option<String>,
+    custom_key: Option<String>,
+) -> Result<(), String> {
     std::fs::create_dir_all(genesis_data_dir()).map_err(|e| e.to_string())?;
-    let settings = FreeLlmApiSettings { unified_key, default_model };
+    let settings = FreeLlmApiSettings {
+        unified_key,
+        default_model,
+        mode,
+        provider,
+        direct_api_key,
+        custom_url,
+        openrouter_key,
+        openrouter_model,
+        openai_key,
+        openai_model,
+        gemini_key,
+        gemini_model,
+        custom_key,
+    };
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(freellmapi_settings_file(), json).map_err(|e| e.to_string())
 }
@@ -853,6 +1033,49 @@ async fn chat_ollama(model: &str, text: &str) -> String {
     }
 }
 
+async fn chat_telegram_model(model: &str, text: &str) -> String {
+    let cloud_providers = ["openrouter", "openai", "gemini", "freellmapi"];
+    if cloud_providers.contains(&model) {
+        let settings = load_freellmapi_settings();
+        let target_model = match model {
+            "freellmapi" => {
+                let m = settings.default_model.clone();
+                if m.is_empty() { "auto".to_string() } else { m }
+            }
+            "openrouter" => {
+                let m = settings.openrouter_model.clone().unwrap_or_default();
+                if m.is_empty() { "auto".to_string() } else { m }
+            }
+            "openai" => {
+                let m = settings.openai_model.clone().unwrap_or_default();
+                if m.is_empty() { "gpt-4o-mini".to_string() } else { m }
+            }
+            "gemini" => {
+                let m = settings.gemini_model.clone().unwrap_or_default();
+                if m.is_empty() { "gemini-1.5-flash".to_string() } else { m }
+            }
+            _ => "auto".to_string(),
+        };
+        match chat_via_cloud(model.to_string(), target_model, text.to_string()).await {
+            Ok(resp) => resp,
+            Err(e) => format!("Error querying cloud provider ({}): {}", model, e),
+        }
+    } else if model == "genesis" {
+        let target_model = if let Ok(models) = list_installed_models() {
+            if !models.is_empty() {
+                models[0].clone()
+            } else {
+                "llama3".to_string()
+            }
+        } else {
+            "llama3".to_string()
+        };
+        chat_ollama(&target_model, text).await
+    } else {
+        chat_ollama(model, text).await
+    }
+}
+
 async fn telegram_loop(
     token: String,
     allowed_chat_id: String,
@@ -861,6 +1084,8 @@ async fn telegram_loop(
 ) {
     let client = reqwest::Client::new();
     let mut offset = 0i64;
+
+    println!("[Telegram Bot] Loop started. Polling updates for bot...");
 
     loop {
         let url = format!(
@@ -872,59 +1097,108 @@ async fn telegram_loop(
 
         tokio::select! {
             _ = &mut abort_rx => {
+                println!("[Telegram Bot] Received abort signal. Stopping loop...");
                 break;
             }
             res = request_fut => {
                 match res {
                     Ok(resp) => {
+                        let status_code = resp.status();
+                        if !status_code.is_success() {
+                            println!("[Telegram Bot] API returned error status: {}. Retrying in 5s...", status_code);
+                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                            continue;
+                        }
+
                         if let Ok(json) = resp.json::<serde_json::Value>().await {
-                            if let Some(ok) = json["ok"].as_bool() {
-                                if ok {
-                                    if let Some(result) = json["result"].as_array() {
-                                        for update in result {
-                                            if let Some(update_id) = update["update_id"].as_i64() {
-                                                offset = update_id + 1;
-                                            }
+                            if json["ok"].as_bool() == Some(true) {
+                                if let Some(result) = json["result"].as_array() {
+                                    for update in result {
+                                        if let Some(update_id) = update["update_id"].as_i64() {
+                                            offset = update_id + 1;
+                                        }
 
-                                            if let Some(message) = update["message"].as_object() {
-                                                if let Some(chat) = message["chat"].as_object() {
-                                                    if let Some(chat_id) = chat["id"].as_i64() {
-                                                        let is_allowed = chat_id.to_string() == allowed_chat_id.trim();
-                                                        if !is_allowed {
-                                                            let send_url = format!(
-                                                                "https://api.telegram.org/bot{}/sendMessage",
-                                                                token
-                                                            );
-                                                            let body = serde_json::json!({
-                                                                "chat_id": chat_id,
-                                                                "text": "Unauthorized access. Your Chat ID is not allowed."
-                                                            });
-                                                            let _ = client.post(&send_url).json(&body).send().await;
-                                                            continue;
-                                                        }
+                                        if let Some(message) = update["message"].as_object() {
+                                            if let Some(chat) = message["chat"].as_object() {
+                                                if let Some(chat_id) = chat["id"].as_i64() {
+                                                    let is_allowed = chat_id.to_string() == allowed_chat_id.trim();
+                                                    println!("[Telegram Bot] Received message from chat_id {}. Authorized: {}", chat_id, is_allowed);
+                                                    if !is_allowed {
+                                                        let send_url = format!(
+                                                            "https://api.telegram.org/bot{}/sendMessage",
+                                                            token
+                                                        );
+                                                        let body = serde_json::json!({
+                                                            "chat_id": chat_id,
+                                                            "text": "Unauthorized access. Your Chat ID is not allowed."
+                                                        });
+                                                        let _ = client.post(&send_url).json(&body).send().await;
+                                                        continue;
+                                                    }
 
-                                                        if let Some(text) = message["text"].as_str() {
-                                                            let reply_text = chat_ollama(&model, text).await;
-                                                            let send_url = format!(
-                                                                "https://api.telegram.org/bot{}/sendMessage",
-                                                                token
+                                                    if let Some(text) = message["text"].as_str() {
+                                                        println!("[Telegram Bot] Querying model '{}' with text: '{}'", model, text);
+
+                                                        // Start sending typing indicator in a background loop
+                                                        let (typing_tx, mut typing_rx) = tokio::sync::oneshot::channel::<()>();
+                                                        let typing_token = token.clone();
+                                                        let typing_chat_id = chat_id;
+
+                                                        tokio::spawn(async move {
+                                                            let typing_client = reqwest::Client::new();
+                                                            let action_url = format!(
+                                                                "https://api.telegram.org/bot{}/sendChatAction",
+                                                                typing_token
                                                             );
-                                                            let body = serde_json::json!({
-                                                                "chat_id": chat_id,
-                                                                "text": reply_text
+                                                            let action_body = serde_json::json!({
+                                                                "chat_id": typing_chat_id,
+                                                                "action": "typing"
                                                             });
-                                                            let _ = client.post(&send_url).json(&body).send().await;
-                                                        }
+
+                                                            loop {
+                                                                let _ = typing_client.post(&action_url).json(&action_body).send().await;
+                                                                tokio::select! {
+                                                                    _ = &mut typing_rx => {
+                                                                        break;
+                                                                    }
+                                                                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(4)) => {}
+                                                                }
+                                                            }
+                                                        });
+
+                                                        let reply_text = chat_telegram_model(&model, text).await;
+
+                                                        // Stop typing indicator
+                                                        let _ = typing_tx.send(());
+
+                                                        println!("[Telegram Bot] Received response from model: '{}'", reply_text);
+                                                        let send_url = format!(
+                                                            "https://api.telegram.org/bot{}/sendMessage",
+                                                            token
+                                                        );
+                                                        let body = serde_json::json!({
+                                                            "chat_id": chat_id,
+                                                            "text": reply_text
+                                                        });
+                                                        let _ = client.post(&send_url).json(&body).send().await;
+                                                        println!("[Telegram Bot] Sent response message back to user.");
                                                     }
                                                 }
                                             }
                                         }
                                     }
                                 }
+                            } else {
+                                println!("[Telegram Bot] API response 'ok' is false: {:?}. Retrying in 5s...", json);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                             }
+                        } else {
+                            println!("[Telegram Bot] Failed to parse response JSON. Retrying in 5s...");
+                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                         }
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        println!("[Telegram Bot] Network connection error: {}. Retrying in 5s...", e);
                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     }
                 }
@@ -934,13 +1208,20 @@ async fn telegram_loop(
 }
 
 #[tauri::command]
-fn start_telegram_bot(
+async fn start_telegram_bot(
     token: String,
     allowed_chat_id: String,
     model: String,
     state: tauri::State<'_, TelegramState>,
 ) -> Result<String, String> {
-    let _ = stop_telegram_bot(state.clone());
+    // Stop the existing bot if running by taking its abort sender directly
+    {
+        if let Ok(mut handle) = state.abort_handle.lock() {
+            if let Some(tx) = handle.take() {
+                let _ = tx.send(());
+            }
+        }
+    }
 
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     
@@ -957,7 +1238,7 @@ fn start_telegram_bot(
 }
 
 #[tauri::command]
-fn stop_telegram_bot(state: tauri::State<'_, TelegramState>) -> Result<String, String> {
+async fn stop_telegram_bot(state: tauri::State<'_, TelegramState>) -> Result<String, String> {
     let mut handle = state.abort_handle.lock().map_err(|e| e.to_string())?;
     if let Some(tx) = handle.take() {
         let _ = tx.send(());
@@ -968,12 +1249,9 @@ fn stop_telegram_bot(state: tauri::State<'_, TelegramState>) -> Result<String, S
 }
 
 #[tauri::command]
-fn telegram_bot_status(state: tauri::State<'_, TelegramState>) -> bool {
-    if let Ok(handle) = state.abort_handle.lock() {
-        handle.is_some()
-    } else {
-        false
-    }
+async fn telegram_bot_status(state: tauri::State<'_, TelegramState>) -> Result<bool, String> {
+    let handle = state.abort_handle.lock().map_err(|e| e.to_string())?;
+    Ok(handle.is_some())
 }
 
 /// Streams a chat completion from a local Ollama model. Emits "chat-token"
@@ -1197,6 +1475,22 @@ Guide for building, testing, and compiling Genesis Grid mods.
 4. **Compilation:** Zip or bundle target assets for deployment.
 "#;
 
+const DEFAULT_SKILL_MEMORY_MANAGER: &str = r#"# memory-manager
+A critical skill for managing your long-term memory in the Brain Vault.
+
+1. **Reading Memories:** Use `list_directory` to view the Brain Vault folder, and `read_file_text` to read specific Markdown files. Look for linked concepts `[[like this]]`.
+2. **Creating Memories:** When asked to remember something, use `write_file_text` to create a new `.md` file in the Vault. Include frontmatter or wiki-links to related topics.
+3. **Graph Awareness:** Keep in mind that every file you write here is instantly visualized as a node in the user's 2D graph interface.
+"#;
+
+const DEFAULT_SKILL_SYSTEM_OPS: &str = r#"# system-ops
+Guidelines for executing commands and managing the user's system.
+
+1. **Safety First:** Never run destructive commands without explicit user permission.
+2. **PowerShell Usage:** You are running on Windows. Use PowerShell syntax when executing terminal commands.
+3. **No Blind Automation:** If a script fails, stop and read the error logs before trying again.
+"#;
+
 #[tauri::command]
 fn list_skills_files() -> Result<Vec<SkillFile>, String> {
     let dir = skills_dir();
@@ -1204,19 +1498,19 @@ fn list_skills_files() -> Result<Vec<SkillFile>, String> {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     }
 
-    let is_empty = match std::fs::read_dir(&dir) {
-        Ok(mut entries) => entries.next().is_none(),
-        Err(_) => true,
-    };
-
-    if is_empty {
-        let defaults = vec![
-            ("graphify.md", DEFAULT_SKILL_GRAPHIFY),
-            ("systematic-debugging.md", DEFAULT_SKILL_DEBUGGING),
-            ("mod-design-and-builder.md", DEFAULT_SKILL_MODDING),
-        ];
-        for (name, content) in defaults {
-            let path = dir.join(name);
+    // Always ensure default skills exist, even if the directory isn't completely empty.
+    // This allows new default skills to be added in future updates.
+    let defaults = vec![
+        ("graphify.md", DEFAULT_SKILL_GRAPHIFY),
+        ("systematic-debugging.md", DEFAULT_SKILL_DEBUGGING),
+        ("mod-design-and-builder.md", DEFAULT_SKILL_MODDING),
+        ("memory-manager.md", DEFAULT_SKILL_MEMORY_MANAGER),
+        ("system-ops.md", DEFAULT_SKILL_SYSTEM_OPS),
+    ];
+    
+    for (name, content) in defaults {
+        let path = dir.join(name);
+        if !path.exists() {
             let _ = std::fs::write(path, content);
         }
     }
@@ -1279,6 +1573,108 @@ fn save_mcp_config(content: String) -> Result<(), String> {
         .map_err(|e| format!("Invalid JSON format: {e}"))?;
     std::fs::create_dir_all(genesis_data_dir()).map_err(|e| e.to_string())?;
     std::fs::write(mcp_config_file(), content).map_err(|e| e.to_string())
+}
+
+// ---------- Vault Management ----------
+
+#[derive(Serialize, Deserialize)]
+struct VaultNode {
+    id: String,
+    name: String,
+    group: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct VaultLink {
+    source: String,
+    target: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct VaultGraph {
+    nodes: Vec<VaultNode>,
+    links: Vec<VaultLink>,
+}
+
+#[tauri::command]
+fn scan_vault(path: String) -> Result<VaultGraph, String> {
+    let mut nodes = vec![];
+    let mut links = vec![];
+    let vault_path = std::path::PathBuf::from(&path);
+    
+    if !vault_path.exists() || !vault_path.is_dir() {
+        return Err("Invalid vault directory".into());
+    }
+
+    // Helper closure to recursively find .md files
+    fn visit_dirs(dir: &std::path::Path, cb: &mut dyn FnMut(&std::fs::DirEntry)) -> std::io::Result<()> {
+        if dir.is_dir() {
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    // Ignore common hidden/system folders
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with('.') || name == "node_modules" {
+                            continue;
+                        }
+                    }
+                    visit_dirs(&path, cb)?;
+                } else {
+                    cb(&entry);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = vec![];
+    visit_dirs(&vault_path, &mut |entry| {
+        if entry.path().extension().and_then(|s| s.to_str()) == Some("md") {
+            files.push(entry.path());
+        }
+    }).map_err(|e| e.to_string())?;
+
+    for file_path in &files {
+        let name = file_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let id = file_path.to_string_lossy().to_string();
+        
+        nodes.push(VaultNode {
+            id: id.clone(),
+            name,
+            group: 1, // We could assign groups based on subdirectories later
+        });
+
+        // Parse content for [[links]]
+        if let Ok(content) = std::fs::read_to_string(file_path) {
+            let re = regex::Regex::new(r"\[\[(.*?)\]\]").unwrap();
+            for cap in re.captures_iter(&content) {
+                let target_name = cap[1].to_string();
+                // Find target file path
+                if let Some(target_file) = files.iter().find(|p| p.file_stem().unwrap_or_default().to_string_lossy() == target_name) {
+                    links.push(VaultLink {
+                        source: id.clone(),
+                        target: target_file.to_string_lossy().to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(VaultGraph { nodes, links })
+}
+
+#[tauri::command]
+fn read_vault_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_vault_file(path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = std::path::PathBuf::from(&path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
 // ---------- Ollama process management ----------
@@ -1346,6 +1742,8 @@ fn main() {
             setup_freellmapi,
             open_freellmapi_dashboard,
             chat_via_freellmapi,
+            chat_via_cloud,
+            fetch_openrouter_free_models,
             load_freellmapi_settings,
             save_freellmapi_settings,
             list_projects,
@@ -1374,7 +1772,10 @@ fn main() {
             save_mcp_config,
             start_telegram_bot,
             stop_telegram_bot,
-            telegram_bot_status
+            telegram_bot_status,
+            scan_vault,
+            read_vault_file,
+            write_vault_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running Genesis Grid");

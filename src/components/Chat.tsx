@@ -33,14 +33,14 @@ export default function Chat({
   onNewChat: () => void;
   theme: "light" | "dark";
 }) {
-  const options = ["genesis", ...installedModels, "freellmapi"];
+  const options = ["genesis", ...installedModels, "openrouter", "openai", "gemini", "freellmapi"];
   const [model, setModel] = useState(options[0] ?? "");
   const [agentBrain, setAgentBrain] = useState<string>(() => {
     const saved = window.localStorage.getItem("genesis_agent_brain");
-    if (saved && (installedModels.includes(saved) || saved === "freellmapi")) {
+    if (saved && (installedModels.includes(saved) || ["freellmapi", "openrouter", "openai", "gemini"].includes(saved))) {
       return saved;
     }
-    return installedModels[0] ?? "freellmapi";
+    return installedModels[0] ?? "openrouter";
   });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -48,6 +48,17 @@ export default function Chat({
   const [freeLlmApiKey, setFreeLlmApiKey] = useState("");
   const [freeLlmApiModel, setFreeLlmApiModel] = useState("");
   const [freeLlmApiSaveError, setFreeLlmApiSaveError] = useState("");
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [openrouterKey, setOpenrouterKey] = useState("");
+  const [openrouterModel, setOpenrouterModel] = useState("");
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [openaiModel, setOpenaiModel] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiModel, setGeminiModel] = useState("");
+  const [customKey, setCustomKey] = useState("");
+  const [customUrl, setCustomUrl] = useState("");
+  const [openrouterFreeModels, setOpenrouterFreeModels] = useState<any[]>([]);
+  const [loadingOpenrouterModels, setLoadingOpenrouterModels] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; content: string; type: string; dataUrl?: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -224,50 +235,206 @@ export default function Chat({
   }
 
   useEffect(() => {
-    const localKey = window.localStorage.getItem("freellmapi_unified_key") || "";
-    const localModel = window.localStorage.getItem("freellmapi_default_model") || "";
-    setFreeLlmApiKey(localKey);
-    setFreeLlmApiModel(localModel);
+    const loadSettings = () => {
+      const localKey = window.localStorage.getItem("freellmapi_unified_key") || "";
+      const localModel = window.localStorage.getItem("freellmapi_default_model") || "";
+      const localOpenrouterKey = window.localStorage.getItem("freellmapi_openrouter_key") || "";
+      const localOpenrouterModel = window.localStorage.getItem("freellmapi_openrouter_model") || "";
+      const localOpenaiKey = window.localStorage.getItem("freellmapi_openai_key") || "";
+      const localOpenaiModel = window.localStorage.getItem("freellmapi_openai_model") || "";
+      const localGeminiKey = window.localStorage.getItem("freellmapi_gemini_key") || "";
+      const localGeminiModel = window.localStorage.getItem("freellmapi_gemini_model") || "";
+      const localCustomKey = window.localStorage.getItem("freellmapi_custom_key") || "";
+      const localCustomUrl = window.localStorage.getItem("freellmapi_custom_url") || "";
+
+      setFreeLlmApiKey(localKey);
+      setFreeLlmApiModel(localModel);
+      setOpenrouterKey(localOpenrouterKey);
+      setOpenrouterModel(localOpenrouterModel);
+      setOpenaiKey(localOpenaiKey);
+      setOpenaiModel(localOpenaiModel);
+      setGeminiKey(localGeminiKey);
+      setGeminiModel(localGeminiModel);
+      setCustomKey(localCustomKey);
+      setCustomUrl(localCustomUrl);
+    };
+
+    loadSettings();
 
     invoke<any>("load_freellmapi_settings")
       .then((s) => {
-        const keyVal = s?.unified_key ?? s?.unifiedKey;
-        const modelVal = s?.default_model ?? s?.defaultModel;
-        if (keyVal) {
+        if (s) {
+          const keyVal = (s.unified_key ?? s.unifiedKey) || window.localStorage.getItem("freellmapi_unified_key") || "";
+          const modelVal = (s.default_model ?? s.defaultModel) || window.localStorage.getItem("freellmapi_default_model") || "";
+          const orKeyVal = (s.openrouter_key ?? s.openrouterKey) || window.localStorage.getItem("freellmapi_openrouter_key") || "";
+          const orModelVal = (s.openrouter_model ?? s.openrouterModel) || window.localStorage.getItem("freellmapi_openrouter_model") || "";
+          const oaKeyVal = (s.openai_key ?? s.openaiKey) || window.localStorage.getItem("freellmapi_openai_key") || "";
+          const oaModelVal = (s.openai_model ?? s.openaiModel) || window.localStorage.getItem("freellmapi_openai_model") || "";
+          const gemKeyVal = (s.gemini_key ?? s.geminiKey) || window.localStorage.getItem("freellmapi_gemini_key") || "";
+          const gemModelVal = (s.gemini_model ?? s.geminiModel) || window.localStorage.getItem("freellmapi_gemini_model") || "";
+          const custKeyVal = (s.custom_key ?? s.customKey) || window.localStorage.getItem("freellmapi_custom_key") || "";
+          const custUrlVal = (s.custom_url ?? s.customUrl) || window.localStorage.getItem("freellmapi_custom_url") || "";
+
           setFreeLlmApiKey(keyVal);
-          window.localStorage.setItem("freellmapi_unified_key", keyVal);
-        }
-        if (modelVal) {
           setFreeLlmApiModel(modelVal);
+          setOpenrouterKey(orKeyVal);
+          setOpenrouterModel(orModelVal);
+          setOpenaiKey(oaKeyVal);
+          setOpenaiModel(oaModelVal);
+          setGeminiKey(gemKeyVal);
+          setGeminiModel(gemModelVal);
+          setCustomKey(custKeyVal);
+          setCustomUrl(custUrlVal);
+
+          window.localStorage.setItem("freellmapi_unified_key", keyVal);
           window.localStorage.setItem("freellmapi_default_model", modelVal);
+          window.localStorage.setItem("freellmapi_openrouter_key", orKeyVal);
+          window.localStorage.setItem("freellmapi_openrouter_model", orModelVal);
+          window.localStorage.setItem("freellmapi_openai_key", oaKeyVal);
+          window.localStorage.setItem("freellmapi_openai_model", oaModelVal);
+          window.localStorage.setItem("freellmapi_gemini_key", gemKeyVal);
+          window.localStorage.setItem("freellmapi_gemini_model", gemModelVal);
+          window.localStorage.setItem("freellmapi_custom_key", custKeyVal);
+          window.localStorage.setItem("freellmapi_custom_url", custUrlVal);
         }
       })
       .catch(() => {
         // Silently rely on localStorage if loading from Tauri fails
       });
+
+    window.addEventListener("storage", loadSettings);
+    return () => {
+      window.removeEventListener("storage", loadSettings);
+    };
   }, []);
 
-  function persistFreeLlmApiSettings(key: string, model: string) {
-    window.localStorage.setItem("freellmapi_unified_key", key);
-    window.localStorage.setItem("freellmapi_default_model", model);
+  function persistFreeLlmApiSettings(provider: string, key: string, model: string) {
+    // Read directly from DOM to catch auto-filled values or immediate updates securely
+    const dUnified = document.getElementById("chat-freellmapi-key") as HTMLInputElement;
+    const dOpenrouter = document.getElementById("chat-openrouter-key") as HTMLInputElement;
+    const dOpenai = document.getElementById("chat-openai-key") as HTMLInputElement;
+    const dGemini = document.getElementById("chat-gemini-key") as HTMLInputElement;
+
+    const valUnified = dUnified ? dUnified.value : (freeLlmApiKey || window.localStorage.getItem("freellmapi_unified_key") || "");
+    const valOpenrouter = dOpenrouter ? dOpenrouter.value : (openrouterKey || window.localStorage.getItem("freellmapi_openrouter_key") || "");
+    const valOpenai = dOpenai ? dOpenai.value : (openaiKey || window.localStorage.getItem("freellmapi_openai_key") || "");
+    const valGemini = dGemini ? dGemini.value : (geminiKey || window.localStorage.getItem("freellmapi_gemini_key") || "");
+
+    const updated = {
+      unified_key: valUnified,
+      default_model: freeLlmApiModel,
+      openrouter_key: valOpenrouter,
+      openrouter_model: openrouterModel,
+      openai_key: valOpenai,
+      openai_model: openaiModel,
+      gemini_key: valGemini,
+      gemini_model: geminiModel,
+      custom_key: customKey,
+      custom_url: customUrl,
+    };
+
+    let targetKey = key;
+    if (provider === "freellmapi") {
+      targetKey = valUnified;
+      setFreeLlmApiKey(targetKey);
+      setFreeLlmApiModel(model);
+      updated.unified_key = targetKey;
+      updated.default_model = model;
+      window.localStorage.setItem("freellmapi_unified_key", targetKey);
+      window.localStorage.setItem("freellmapi_default_model", model);
+    } else if (provider === "openrouter") {
+      targetKey = valOpenrouter;
+      setOpenrouterKey(targetKey);
+      setOpenrouterModel(model);
+      updated.openrouter_key = targetKey;
+      updated.openrouter_model = model;
+      window.localStorage.setItem("freellmapi_openrouter_key", targetKey);
+      window.localStorage.setItem("freellmapi_openrouter_model", model);
+    } else if (provider === "openai") {
+      targetKey = valOpenai;
+      setOpenaiKey(targetKey);
+      setOpenaiModel(model);
+      updated.openai_key = targetKey;
+      updated.openai_model = model;
+      window.localStorage.setItem("freellmapi_openai_key", targetKey);
+      window.localStorage.setItem("freellmapi_openai_model", model);
+    } else if (provider === "gemini") {
+      targetKey = valGemini;
+      setGeminiKey(targetKey);
+      setGeminiModel(model);
+      updated.gemini_key = targetKey;
+      updated.gemini_model = model;
+      window.localStorage.setItem("freellmapi_gemini_key", targetKey);
+      window.localStorage.setItem("freellmapi_gemini_model", model);
+    }
 
     invoke("save_freellmapi_settings", { 
-      unifiedKey: key, 
-      unified_key: key, 
-      defaultModel: model, 
-      default_model: model 
+      unifiedKey: updated.unified_key, 
+      unified_key: updated.unified_key, 
+      defaultModel: updated.default_model, 
+      default_model: updated.default_model,
+      openrouterKey: updated.openrouter_key,
+      openrouter_key: updated.openrouter_key,
+      openrouterModel: updated.openrouter_model,
+      openrouter_model: updated.openrouter_model,
+      openaiKey: updated.openai_key,
+      openai_key: updated.openai_key,
+      openaiModel: updated.openai_model,
+      openai_model: updated.openai_model,
+      geminiKey: updated.gemini_key,
+      gemini_key: updated.gemini_key,
+      geminiModel: updated.gemini_model,
+      gemini_model: updated.gemini_model,
+      customKey: updated.custom_key,
+      custom_key: updated.custom_key,
+      customUrl: updated.custom_url,
+      custom_url: updated.custom_url,
+      // fallbacks
+      mode: "proxy",
+      provider: "openrouter",
+      directApiKey: updated.openrouter_key,
+      direct_api_key: updated.openrouter_key,
     })
-      .then(() => setFreeLlmApiSaveError(""))
+      .then(() => {
+        setFreeLlmApiSaveError("");
+        setSettingsSaved(true);
+        setTimeout(() => setSettingsSaved(false), 2000);
+      })
       .catch((e) => {
         const errStr = String(e);
         if (errStr.includes("not found")) {
-          // If the Tauri command is missing, suppress the error since we saved in localStorage.
           setFreeLlmApiSaveError("");
+          setSettingsSaved(true);
+          setTimeout(() => setSettingsSaved(false), 2000);
         } else {
           setFreeLlmApiSaveError(`Couldn't save: ${e}`);
         }
       });
   }
+
+  useEffect(() => {
+    const isOrSelected = model === "openrouter" || (model === "genesis" && agentBrain === "openrouter");
+    if (isOrSelected && openrouterFreeModels.length === 0 && !loadingOpenrouterModels) {
+      setLoadingOpenrouterModels(true);
+      invoke<any[]>("fetch_openrouter_free_models")
+        .then((list) => {
+          setOpenrouterFreeModels(list);
+          if (list.length > 0 && !openrouterModel) {
+            const firstModelId = list[0].id;
+            setOpenrouterModel(firstModelId);
+            window.localStorage.setItem("freellmapi_openrouter_model", firstModelId);
+            // invoke save settings
+            persistFreeLlmApiSettings("openrouter", openrouterKey, firstModelId);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to fetch free OpenRouter models", err);
+        })
+        .finally(() => {
+          setLoadingOpenrouterModels(false);
+        });
+    }
+  }, [model, agentBrain, openrouterFreeModels.length]);
 
   useEffect(() => {
     invoke<string>("load_genesis_wiki")
@@ -310,10 +477,15 @@ If no new facts are learned, return the existing wiki exactly.
 Respond ONLY with the raw updated markdown content. Do not include chat intro/outro, backticks, or code blocks.`;
 
     try {
-      const updatedWiki = await invoke<string>("chat_via_freellmapi", {
-        unifiedKey: freeLlmApiKey,
-        unified_key: freeLlmApiKey,
-        model: freeLlmApiModel || "auto",
+      const provider = ["openrouter", "openai", "gemini", "freellmapi"].includes(agentBrain) ? agentBrain : "freellmapi";
+      const targetModel = provider === "freellmapi" ? freeLlmApiModel 
+                          : provider === "openrouter" ? openrouterModel 
+                          : provider === "openai" ? openaiModel 
+                          : provider === "gemini" ? geminiModel 
+                          : "auto";
+      const updatedWiki = await invoke<string>("chat_via_cloud", {
+        provider,
+        model: targetModel,
         message: prompt
       });
       if (updatedWiki && updatedWiki.trim() && !updatedWiki.startsWith("Error:")) {
@@ -446,12 +618,17 @@ ${wikiContent}
       };
     }
 
-    if (routeModel === "freellmapi") {
+    const isCloud = ["freellmapi", "openrouter", "openai", "gemini"].includes(routeModel);
+    if (isCloud) {
       try {
-        const reply = await invoke<string>("chat_via_freellmapi", {
-          unifiedKey: freeLlmApiKey,
-          unified_key: freeLlmApiKey,
-          model: freeLlmApiModel,
+        const targetModel = routeModel === "freellmapi" ? freeLlmApiModel 
+                            : routeModel === "openrouter" ? openrouterModel 
+                            : routeModel === "openai" ? openaiModel 
+                            : routeModel === "gemini" ? geminiModel 
+                            : "auto";
+        const reply = await invoke<string>("chat_via_cloud", {
+          provider: routeModel,
+          model: targetModel,
           message: systemPrompt
             ? `[System Directive: ${systemPrompt.content}]\n\nUser: ${userMsg.content}`
             : userMsg.content,
@@ -646,6 +823,9 @@ ${wikiContent}
               {installedModels.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
+              <option value="openrouter">OpenRouter (online)</option>
+              <option value="openai">OpenAI (online)</option>
+              <option value="gemini">Google Gemini (online)</option>
               <option value="freellmapi">FreeLLMAPI (online)</option>
             </select>
           )}
@@ -673,6 +853,9 @@ ${wikiContent}
                 {installedModels.map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
+                <option value="openrouter">OpenRouter (online)</option>
+                <option value="openai">OpenAI (online)</option>
+                <option value="gemini">Google Gemini (online)</option>
                 <option value="freellmapi">FreeLLMAPI (online)</option>
               </select>
             </div>
@@ -680,53 +863,245 @@ ${wikiContent}
         </div>
       </div>
 
-      {model === "freellmapi" && (
-        <>
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <input
-            value={freeLlmApiKey}
-            onChange={(e) => {
-              setFreeLlmApiKey(e.target.value);
-              persistFreeLlmApiSettings(e.target.value, freeLlmApiModel);
-            }}
-            placeholder="freellmapi-… unified key (from its dashboard, see Use online instead)"
-            style={{
-              flex: 2,
-              padding: "8px 12px",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border)",
-              background: "var(--bg-sunken)",
-              color: "var(--ink)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 12,
-            }}
-          />
-          <input
-            value={freeLlmApiModel}
-            onChange={(e) => {
-              setFreeLlmApiModel(e.target.value);
-              persistFreeLlmApiSettings(freeLlmApiKey, e.target.value);
-            }}
-            placeholder="model (e.g. auto, or a name from its dashboard)"
-            style={{
-              flex: 1,
-              padding: "8px 12px",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border)",
-              background: "var(--bg-sunken)",
-              color: "var(--ink)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 12,
-            }}
-          />
-        </div>
-        {freeLlmApiSaveError && (
-          <p style={{ color: "var(--warn)", fontSize: 12, marginTop: -4, marginBottom: 8 }}>
-            {freeLlmApiSaveError}
-          </p>
-        )}
-        </>
-      )}
+      {(["freellmapi", "openrouter", "openai", "gemini"].includes(model) || (model === "genesis" && ["freellmapi", "openrouter", "openai", "gemini"].includes(agentBrain))) && (() => {
+        const activeProvider = model === "genesis" ? agentBrain : model;
+        return (
+          <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+            {activeProvider === "freellmapi" && (
+              <>
+                <input
+                  id="chat-freellmapi-key"
+                  value={freeLlmApiKey}
+                  onChange={(e) => setFreeLlmApiKey(e.target.value)}
+                  onBlur={() => persistFreeLlmApiSettings("freellmapi", freeLlmApiKey, freeLlmApiModel)}
+                  placeholder="freellmapi-… unified key (from dashboard, see Use online instead)"
+                  style={{
+                    flex: 2,
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                />
+                <input
+                  value={freeLlmApiModel}
+                  onChange={(e) => setFreeLlmApiModel(e.target.value)}
+                  placeholder="model (e.g. auto)"
+                  style={{
+                    flex: 1,
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => persistFreeLlmApiSettings("freellmapi", freeLlmApiKey, freeLlmApiModel)}
+                  style={{
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    background: settingsSaved ? "var(--success)" : "var(--accent)",
+                    borderColor: settingsSaved ? "var(--success)" : "var(--accent)",
+                    transition: "all 0.2s ease",
+                    minWidth: 70
+                  }}
+                >
+                  {settingsSaved ? "Saved! ✓" : "Save"}
+                </button>
+              </>
+            )}
+
+            {activeProvider === "openrouter" && (
+              <>
+                <input
+                  id="chat-openrouter-key"
+                  type="password"
+                  value={openrouterKey}
+                  onChange={(e) => setOpenrouterKey(e.target.value)}
+                  onBlur={() => persistFreeLlmApiSettings("openrouter", openrouterKey, openrouterModel)}
+                  placeholder="OpenRouter API Key (sk-or-...)"
+                  style={{
+                    flex: 2,
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                />
+                <select
+                  value={openrouterModel}
+                  onChange={(e) => {
+                    setOpenrouterModel(e.target.value);
+                    persistFreeLlmApiSettings("openrouter", openrouterKey, e.target.value);
+                  }}
+                  style={{
+                    flex: 1.5,
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  {loadingOpenrouterModels ? (
+                    <option value="">Loading free models...</option>
+                  ) : (
+                    <>
+                      <option value="auto">Auto-select</option>
+                      {openrouterFreeModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || m.id}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => persistFreeLlmApiSettings("openrouter", openrouterKey, openrouterModel)}
+                  style={{
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    background: settingsSaved ? "var(--success)" : "var(--accent)",
+                    borderColor: settingsSaved ? "var(--success)" : "var(--accent)",
+                    transition: "all 0.2s ease",
+                    minWidth: 70
+                  }}
+                >
+                  {settingsSaved ? "Saved! ✓" : "Save"}
+                </button>
+              </>
+            )}
+
+            {activeProvider === "openai" && (
+              <>
+                <input
+                  id="chat-openai-key"
+                  type="password"
+                  value={openaiKey}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                  onBlur={() => persistFreeLlmApiSettings("openai", openaiKey, openaiModel)}
+                  placeholder="OpenAI API Key (sk-proj-...)"
+                  style={{
+                    flex: 2,
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                />
+                <input
+                  value={openaiModel}
+                  onChange={(e) => setOpenaiModel(e.target.value)}
+                  placeholder="model (e.g. gpt-4o-mini)"
+                  style={{
+                    flex: 1,
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => persistFreeLlmApiSettings("openai", openaiKey, openaiModel)}
+                  style={{
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    background: settingsSaved ? "var(--success)" : "var(--accent)",
+                    borderColor: settingsSaved ? "var(--success)" : "var(--accent)",
+                    transition: "all 0.2s ease",
+                    minWidth: 70
+                  }}
+                >
+                  {settingsSaved ? "Saved! ✓" : "Save"}
+                </button>
+              </>
+            )}
+
+            {activeProvider === "gemini" && (
+              <>
+                <input
+                  id="chat-gemini-key"
+                  type="password"
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                  onBlur={() => persistFreeLlmApiSettings("gemini", geminiKey, geminiModel)}
+                  placeholder="Google Gemini API Key (AIzaSy...)"
+                  style={{
+                    flex: 2,
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                />
+                <input
+                  value={geminiModel}
+                  onChange={(e) => setGeminiModel(e.target.value)}
+                  placeholder="model (e.g. gemini-1.5-flash)"
+                  style={{
+                    flex: 1,
+                    padding: "8px 12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => persistFreeLlmApiSettings("gemini", geminiKey, geminiModel)}
+                  style={{
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    background: settingsSaved ? "var(--success)" : "var(--accent)",
+                    borderColor: settingsSaved ? "var(--success)" : "var(--accent)",
+                    transition: "all 0.2s ease",
+                    minWidth: 70
+                  }}
+                >
+                  {settingsSaved ? "Saved! ✓" : "Save"}
+                </button>
+              </>
+            )}
+          </div>
+          {freeLlmApiSaveError && (
+            <p style={{ color: "var(--warn)", fontSize: 12, marginTop: -4, marginBottom: 8 }}>
+              {freeLlmApiSaveError}
+            </p>
+          )}
+          </>
+        );
+      })()}
 
       <div
         ref={scrollRef}

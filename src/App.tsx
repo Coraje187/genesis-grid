@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { listen } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import HardwareCheck from "./components/HardwareCheck";
 import ModelLibrary from "./components/ModelLibrary";
 import OnlineFallback from "./components/OnlineFallback";
@@ -20,6 +21,7 @@ interface InstallProgress {
 }
 
 export default function App() {
+  const { t } = useTranslation();
   const [theme, setTheme] = useState<Theme>("dark");
   const [view, setView] = useState<View>("chat");
   const [profile, setProfile] = useState<SystemProfile | null>(null);
@@ -171,28 +173,28 @@ export default function App() {
             aria-current={view === "chat" ? "page" : undefined}
             onClick={goToChat}
           >
-            Chat
+            {t("chat")}
           </button>
           <button
             className="nav-item"
             aria-current={view === "chats" ? "page" : undefined}
             onClick={() => setView("chats")}
           >
-            Chats & projects
+            {t("chatsAndProjects")}
           </button>
           <button
             className="nav-item"
             aria-current={view === "memory" ? "page" : undefined}
             onClick={() => setView("memory")}
           >
-            Memory Core
+            {t("memoryCore")}
           </button>
           <button
             className="nav-item"
             aria-current={view === "hardware" ? "page" : undefined}
             onClick={() => setView("hardware")}
           >
-            My machine
+            {t("myMachine")}
           </button>
           <button
             className="nav-item"
@@ -201,14 +203,14 @@ export default function App() {
               setView("library");
             }}
           >
-            Model library
+            {t("modelLibrary")}
           </button>
           <button
             className="nav-item"
             aria-current={view === "online" ? "page" : undefined}
             onClick={() => setView("online")}
           >
-            Use online instead
+            {t("useOnlineInstead")}
           </button>
         </nav>
 
@@ -218,7 +220,7 @@ export default function App() {
           onClick={() => setView("skills_tools")}
           style={{ marginTop: "auto" }}
         >
-          Settings
+          {t("settings")}
         </button>
 
         <div className="theme-toggle" style={{ marginTop: 0 }}>
