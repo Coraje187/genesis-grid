@@ -36,20 +36,21 @@ export default function MemoryCore() {
       loadVault(savedPath);
     }
 
-    // Resize observer for graph
-    const updateDimensions = () => {
-      if (containerRef.current) {
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      if (entries[0]) {
         setContainerDimensions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight
+          width: entries[0].contentRect.width,
+          height: entries[0].contentRect.height
         });
       }
-    };
-    
-    updateDimensions();
-    window.addEventListener("resize", updateDimensions);
-    return () => window.removeEventListener("resize", updateDimensions);
-  }, []);
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [vaultPath]);
 
   async function handleSelectVault() {
     const selected = await open({
