@@ -1575,6 +1575,29 @@ fn save_mcp_config(content: String) -> Result<(), String> {
     std::fs::write(mcp_config_file(), content).map_err(|e| e.to_string())
 }
 
+// ---------- Agents Management ----------
+
+fn agents_config_file() -> std::path::PathBuf {
+    genesis_data_dir().join("agents-config.json")
+}
+
+#[tauri::command]
+fn load_agents_config() -> Result<String, String> {
+    let path = agents_config_file();
+    if !path.exists() {
+        return Ok(r#"[]"#.to_string());
+    }
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_agents_config(content: String) -> Result<(), String> {
+    let _v: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Invalid JSON format: {e}"))?;
+    std::fs::create_dir_all(genesis_data_dir()).map_err(|e| e.to_string())?;
+    std::fs::write(agents_config_file(), content).map_err(|e| e.to_string())
+}
+
 // ---------- Vault Management ----------
 
 #[derive(Serialize, Deserialize)]
@@ -1770,6 +1793,8 @@ fn main() {
             delete_skill_file,
             load_mcp_config,
             save_mcp_config,
+            load_agents_config,
+            save_agents_config,
             start_telegram_bot,
             stop_telegram_bot,
             telegram_bot_status,

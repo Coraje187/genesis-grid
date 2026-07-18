@@ -9,9 +9,10 @@ import Chat from "./components/Chat";
 import ChatHistory from "./components/ChatHistory";
 import MemoryCore from "./components/MemoryCore";
 import SkillsTools from "./components/SkillsTools";
+import AgentsView from "./components/AgentsView";
 import { SystemProfile } from "./lib/modelTiers";
 
-type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools";
+type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents";
 type Theme = "light" | "dark";
 
 interface InstallProgress {
@@ -184,6 +185,13 @@ export default function App() {
           </button>
           <button
             className="nav-item"
+            aria-current={view === "agents" ? "page" : undefined}
+            onClick={() => setView("agents")}
+          >
+            Agents Crew
+          </button>
+          <button
+            className="nav-item"
             aria-current={view === "memory" ? "page" : undefined}
             onClick={() => setView("memory")}
           >
@@ -242,6 +250,7 @@ export default function App() {
       </aside>
 
       <main className="main-view">
+        {view === "agents" && <AgentsView installedModels={installedModels} />}
         {view === "chat" && activeSessionId && (
           <Chat 
             sessionId={activeSessionId} 
