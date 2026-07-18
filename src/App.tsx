@@ -251,20 +251,21 @@ export default function App() {
 
       <main className="main-view">
         {view === "agents" && <AgentsView installedModels={installedModels} />}
-        {view === "chat" && activeSessionId && (
-          <Chat 
-            sessionId={activeSessionId} 
-            installedModels={installedModels} 
-            theme={theme}
-            onNewChat={async () => {
-              const session = await invoke<{ id: string }>("new_chat_session", { model: "genesis", projectId: null });
-              setActiveSessionId(session.id);
-            }}
-          />
-        )}
-        {view === "chat" && !activeSessionId && (
-          <p style={{ color: "var(--ink-soft)" }}>Starting a new chat…</p>
-        )}
+        <div style={{ display: view === "chat" ? "flex" : "none", flexDirection: "column", height: "100%", flex: 1, minHeight: 0 }}>
+          {activeSessionId ? (
+            <Chat 
+              sessionId={activeSessionId} 
+              installedModels={installedModels} 
+              theme={theme}
+              onNewChat={async () => {
+                const session = await invoke<{ id: string }>("new_chat_session", { model: "genesis", projectId: null });
+                setActiveSessionId(session.id);
+              }}
+            />
+          ) : (
+            <p style={{ color: "var(--ink-soft)" }}>Starting a new chat…</p>
+          )}
+        </div>
         {view === "chats" && (
           <ChatHistory installedModels={installedModels} onOpenSession={openSession} />
         )}

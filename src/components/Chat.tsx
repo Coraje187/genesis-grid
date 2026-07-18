@@ -73,7 +73,9 @@ export default function Chat({
   const [enabledSkills, setEnabledSkills] = useState<Record<string, boolean>>({});
 
   const [isLoopMode, setIsLoopMode] = useState(false);
-  const [loopState, setLoopState] = useState<"idle" | "architect" | "cipher">("idle");
+  const [loopState, setLoopState] = useState<"idle" | "architect" | "oracle" | "cipher">("idle");
+  const loopStateRef = useRef(loopState);
+  useEffect(() => { loopStateRef.current = loopState; }, [loopState]);
   const [loopAgents, setLoopAgents] = useState<any[]>([]);
 
   // Load agents for Loop Mode
@@ -534,12 +536,11 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
       });
     });
     const unDone = listen("chat-done", () => {
-      setSending(false);
       setMessages((prev) => {
         invoke("save_chat_session", { id: sessionId, model, messages: prev }).catch(() => {});
         const lastAssistant = prev[prev.length - 1];
         const lastUser = prev[prev.length - 2];
-        if (lastAssistant && lastUser && model === "genesis") {
+        if (lastAssistant && lastUser && model === "genesis" && !isLoopMode) {
           const match = lastAssistant.content.match(/\[EXECUTE:\s*([a-zA-Z0-9_]+)\s*(\{.*\})\]/);
           if (match) {
             try {
@@ -551,6 +552,21 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
           }
           compileMemoryLoop(lastUser.content, lastAssistant.content);
         }
+        
+        if (isLoopMode) {
+          const currentStep = loopStateRef.current;
+          if (currentStep === "architect") {
+            setTimeout(() => runLoopStep("oracle", "", [], prev), 500);
+          } else if (currentStep === "oracle") {
+            setTimeout(() => runLoopStep("cipher", "", [], prev), 500);
+          } else if (currentStep === "cipher") {
+            setLoopState("idle");
+            setSending(false);
+          }
+        } else {
+          setSending(false);
+        }
+        
         return prev;
       });
     });
@@ -560,11 +576,11 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
     };
   }, [sessionId, model]);
 
-  async function runInference(history: ChatMessage[], userMsg: ChatMessage) {
-    let routeModel = model;
-    let systemPrompt: ChatMessage | null = null;
+  async function runInference(history: ChatMessage[], userMsg: ChatMessage, overrideModel?: string, overrideSystem?: ChatMessage) {
+    let routeModel = overrideModel || model;
+    let systemPrompt: ChatMessage | null = overrideSystem || null;
 
-    if (model === "genesis") {
+    if (routeModel === "genesis" && !overrideSystem) {
       routeModel = agentBrain;
 
       const toolDescriptions: Record<string, string> = {
@@ -757,7 +773,7 @@ ${wikiContent}
     setSending(true);
 
     if (isLoopMode) {
-      runLoopInference(fullContent, attachedFiles);
+      runLoopStep("architect", fullContent, attachedFiles, []);
     } else {
       const withUser = [...messages, userMsg, { role: "assistant" as const, content: "" }];
       setMessages(withUser);
@@ -765,60 +781,43 @@ ${wikiContent}
     }
   }
 
-  async function runLoopInference(userText: string, files: any[]) {
-    // Basic hardcoded 3-agent pipeline for demonstration
+  function runLoopStep(step: "architect" | "oracle" | "cipher", userText: string, files: any[], currentHistory: ChatMessage[]) {
     const architect = loopAgents.find(a => a.id === "architect") || { name: "Architect", role: "Planner", model: "genesis" };
     const oracle = loopAgents.find(a => a.id === "oracle") || { name: "Oracle", role: "Researcher", model: "genesis" };
     const cipher = loopAgents.find(a => a.id === "cipher") || { name: "Cipher", role: "Coder", model: "genesis" };
 
     const getModelStr = (agentModel: string) => agentModel === "genesis" ? agentBrain : agentModel;
 
-    setMessages(prev => [
-      ...prev,
-      { role: "user", content: userText },
-      { role: "assistant", content: `**[ORCHESTRATOR]** Loop Mode Engaged.\n> Delegating to **${architect.name}** for planning...` }
-    ]);
-
-    try {
-      // 1. Architect
-      const plan = await invoke<string>("chat_send_sync", {
-        model: getModelStr(architect.model),
-        message: `[System: ${architect.role}]\n\nUser Request: ${userText}\n\nPlease break this down into a plan.`
-      });
-
-      setMessages(prev => [
-        ...prev.slice(0, -1),
-        { role: "assistant", content: `**[ORCHESTRATOR]** ${architect.name} generated a plan.\n> Delegating to **${oracle.name}** for research and analysis...` }
-      ]);
-
-      // 2. Oracle
-      const research = await invoke<string>("chat_send_sync", {
-        model: getModelStr(oracle.model),
-        message: `[System: ${oracle.role}]\n\nArchitect's Plan:\n${plan}\n\nPlease perform necessary analysis/research for this plan.`
-      });
-
-      setMessages(prev => [
-        ...prev.slice(0, -1),
-        { role: "assistant", content: `**[ORCHESTRATOR]** ${oracle.name} finished research.\n> Delegating to **${cipher.name}** for execution...` }
-      ]);
-
-      // 3. Cipher
-      const finalCode = await invoke<string>("chat_send_sync", {
-        model: getModelStr(cipher.model),
-        message: `[System: ${cipher.role}]\n\nArchitect's Plan:\n${plan}\n\nOracle's Research:\n${research}\n\nPlease execute the final task and provide the output to the user.`
-      });
-
-      setMessages(prev => [
-        ...prev.slice(0, -1),
-        { role: "assistant", content: `**${architect.name}'s Plan:**\n${plan}\n\n---\n**${cipher.name}'s Output:**\n${finalCode}` }
-      ]);
-    } catch (e) {
-      setMessages(prev => [
-        ...prev.slice(0, -1),
-        { role: "assistant", content: `**[ORCHESTRATOR ERROR]**\nLoop failed: ${e}` }
-      ]);
+    let targetAgent;
+    let overrideSystemText = "";
+    
+    if (step === "architect") {
+      targetAgent = architect;
+      overrideSystemText = `[System: ${architect.role}]\n\nUser Request: ${userText}\n\nPlease break this down into a concrete plan for the next agent.`;
+    } else if (step === "oracle") {
+      targetAgent = oracle;
+      const lastOutput = currentHistory[currentHistory.length - 1].content;
+      overrideSystemText = `[System: ${oracle.role}]\n\nArchitect's Plan:\n${lastOutput}\n\nPlease perform necessary analysis/research for this plan.`;
+    } else {
+      targetAgent = cipher;
+      const architectOutput = currentHistory[currentHistory.length - 3].content;
+      const oracleOutput = currentHistory[currentHistory.length - 1].content;
+      overrideSystemText = `[System: ${cipher.role}]\n\nArchitect's Plan:\n${architectOutput}\n\nOracle's Research:\n${oracleOutput}\n\nPlease execute the final task and provide the output to the user.`;
     }
-    setSending(false);
+
+    const sysMsg: ChatMessage = { role: "system", content: overrideSystemText };
+    const userMsg: ChatMessage = { role: "user", content: step === "architect" ? userText : "(Internal Loop Handoff)" };
+
+    const newHistory = [
+      ...(step === "architect" ? messages : currentHistory),
+      userMsg,
+      { role: "assistant" as const, content: `**${targetAgent.name}:**\n\n` }
+    ];
+
+    setMessages(newHistory);
+    setLoopState(step);
+    setSending(true);
+    runInference(newHistory, userMsg, getModelStr(targetAgent.model), sysMsg);
   }
 
   async function handleAbort() {
