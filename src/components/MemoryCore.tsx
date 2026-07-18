@@ -178,11 +178,17 @@ export default function MemoryCore() {
               nodeCanvasObject={(node: any, ctx, globalScale) => {
                 const radius = 4;
                 
+                // Deterministic color based on node name
+                const colors = ["#00f2fe", "#ff2ec8", "#ffb300", "#9b3ffb", "#00ff9d", "#ff3366", "#ffffff"];
+                let hash = 0;
+                for (let i = 0; i < node.id.length; i++) hash = node.id.charCodeAt(i) + ((hash << 5) - hash);
+                const glowColor = colors[Math.abs(hash) % colors.length];
+
                 // Create a beautiful glowing orb effect
                 const gradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, radius * 3);
                 gradient.addColorStop(0, "rgba(255, 255, 255, 1)"); // Hot white core
-                gradient.addColorStop(0.3, "#00f2fe"); // Cyan glow
-                gradient.addColorStop(1, "rgba(0, 242, 254, 0)"); // Fade to transparent
+                gradient.addColorStop(0.3, glowColor); // Colored glow
+                gradient.addColorStop(1, "rgba(0, 0, 0, 0)"); // Fade to transparent
                 
                 ctx.beginPath();
                 ctx.arc(node.x, node.y, radius * 3, 0, 2 * Math.PI, false);
