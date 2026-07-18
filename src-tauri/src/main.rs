@@ -1,7 +1,7 @@
 // Genesis Grid — Tauri backend
 // Handles: hardware detection, model tier recommendation, and talking to a
 // local Ollama install (list / pull / run models, check if Ollama exists).
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows_subsystem")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
 use std::io::Write;
