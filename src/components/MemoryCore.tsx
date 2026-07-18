@@ -169,13 +169,35 @@ export default function MemoryCore() {
               height={containerDimensions.height}
               graphData={graphData}
               nodeLabel="name"
-              nodeColor={() => "#00f2fe"}
-              linkColor={() => "rgba(255, 255, 255, 0.2)"}
+              linkColor={() => "rgba(255, 255, 255, 0.15)"}
               backgroundColor="#0d0f12"
               onNodeClick={handleNodeClick}
-              nodeRelSize={6}
+              linkWidth={1}
               linkDirectionalParticles={2}
               linkDirectionalParticleSpeed={0.005}
+              nodeCanvasObject={(node: any, ctx, globalScale) => {
+                const radius = 4;
+                
+                // Create a beautiful glowing orb effect
+                const gradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, radius * 3);
+                gradient.addColorStop(0, "rgba(255, 255, 255, 1)"); // Hot white core
+                gradient.addColorStop(0.3, "#00f2fe"); // Cyan glow
+                gradient.addColorStop(1, "rgba(0, 242, 254, 0)"); // Fade to transparent
+                
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius * 3, 0, 2 * Math.PI, false);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Draw the crisp text label underneath
+                const label = node.name;
+                const fontSize = 12 / globalScale;
+                ctx.font = `600 ${fontSize}px Sans-Serif`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+                ctx.fillText(label, node.x, node.y + radius * 2);
+              }}
             />
           )}
           <div style={{ position: "absolute", top: 10, left: 10, color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
