@@ -45,6 +45,17 @@ own machine for this path; GitHub's runner installs them fresh each time.
 You can also trigger a build anytime without a new tag, from the Actions
 tab → "Build Genesis Grid installers" → "Run workflow".
 
+### Troubleshooting: Antivirus False Positives (Windows)
+
+Because Genesis Grid is a brand new, indie desktop application, Windows SmartScreen and third-party antivirus software (like Malwarebytes) may flag the `.exe` as suspicious and try to block the download or installation. 
+
+This is a **false positive** that occurs because the executable is not digitally signed with an expensive Extended Validation (EV) certificate, so Windows does not recognize its "reputation" yet. 
+
+**To install safely:**
+- If Windows SmartScreen blocks the app, click **"More info"** and then **"Run anyway"**.
+- If your antivirus blocks it, you may need to temporarily whitelist the `.exe` file.
+All source code is fully transparent in this repository for your peace of mind.
+
 ## Building locally instead
 
 If you'd rather build on your own machine (both are free):
