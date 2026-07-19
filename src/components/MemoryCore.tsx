@@ -143,6 +143,9 @@ export default function MemoryCore() {
           <button className="btn" onClick={handleCreateNewFile} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--ink)" }}>
             + New Node
           </button>
+          <button className="btn" onClick={() => loadVault(vaultPath)} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--ink)" }}>
+            Refresh
+          </button>
           <button className="btn" onClick={handleSelectVault} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--ink)" }}>
             Change Vault
           </button>

@@ -66,6 +66,7 @@ export default function Chat({
   const [showWiki, setShowWiki] = useState(false);
   const [compilingWiki, setCompilingWiki] = useState(false);
   const [pendingToolCall, setPendingToolCall] = useState<{ name: string; args: any; messageHistory: ChatMessage[] } | null>(null);
+  const [autoExecToolCall, setAutoExecToolCall] = useState<{ name: string; args: any; messageHistory: ChatMessage[] } | null>(null);
   const [downloadsPath, setDownloadsPath] = useState("");
 
   const [enabledTools, setEnabledTools] = useState<Record<string, boolean>>({});
@@ -86,7 +87,7 @@ export default function Chat({
   }, []);
 
   function refreshSkillsAndTools() {
-    const tools = ["list_directory", "read_file_text", "write_file_text", "run_command", "fetch_url"];
+    const tools = ["list_directory", "read_file_text", "write_file_text", "run_command", "fetch_url", "create_kanban_card", "update_kanban_card", "run_notebook_cell"];
     const toolsConfig: Record<string, boolean> = {};
     tools.forEach((t) => {
       const stored = window.localStorage.getItem(`tool_enabled_${t}`);
@@ -540,17 +541,28 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         invoke("save_chat_session", { id: sessionId, model, messages: prev }).catch(() => {});
         const lastAssistant = prev[prev.length - 1];
         const lastUser = prev[prev.length - 2];
-        if (lastAssistant && lastUser && model === "genesis" && !isLoopMode) {
+        if (lastAssistant && lastUser && (model === "genesis" || isLoopMode)) {
           const match = lastAssistant.content.match(/\[EXECUTE:\s*([a-zA-Z0-9_]+)\s*(\{.*\})\]/);
           if (match) {
             try {
               const name = match[1];
               const args = JSON.parse(match[2]);
-              setPendingToolCall({ name, args, messageHistory: prev });
+              
+              const autoTools = ["run_notebook_cell", "create_kanban_card", "update_kanban_card"];
+              if (autoTools.includes(name)) {
+                setTimeout(() => setAutoExecToolCall({ name, args, messageHistory: prev }), 0);
+                return prev;
+              }
+
+              if (!isLoopMode) {
+                setPendingToolCall({ name, args, messageHistory: prev });
+              }
               return prev;
             } catch (e) {}
           }
-          compileMemoryLoop(lastUser.content, lastAssistant.content);
+          if (!isLoopMode) {
+            compileMemoryLoop(lastUser.content, lastAssistant.content);
+          }
         }
         
         if (isLoopMode) {
@@ -576,6 +588,74 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
     };
   }, [sessionId, model]);
 
+  useEffect(() => {
+    if (!autoExecToolCall) return;
+    const { name, args, messageHistory } = autoExecToolCall;
+    
+    const executeAuto = async () => {
+      let output = "";
+      try {
+        if (name === "run_notebook_cell") {
+          output = await invoke("run_code_sandbox", { language: args.language || "python", code: args.code || "" });
+        } else if (name === "create_kanban_card") {
+          const json = await invoke<string>("load_kanban_config");
+          const boards = JSON.parse(json);
+          if (boards.length > 0) {
+            const board = boards[0];
+            const col = board.columns.find((c: any) => c.id === args.column);
+            if (col) {
+               col.cards.push({ id: "card-" + Date.now(), title: args.title || "Task", description: args.description || "" });
+               await invoke("save_kanban_config", { content: JSON.stringify(boards) });
+               output = `Successfully created card in column ${args.column}`;
+            } else {
+               output = `Column ${args.column} not found`;
+            }
+          } else {
+            output = "No boards found.";
+          }
+        } else if (name === "update_kanban_card") {
+          const json = await invoke<string>("load_kanban_config");
+          const boards = JSON.parse(json);
+          if (boards.length > 0) {
+            const board = boards[0];
+            let foundCard = null;
+            // Remove card from old column
+            board.columns.forEach((col: any) => {
+              const idx = col.cards.findIndex((c: any) => c.id === args.card_id);
+              if (idx !== -1) {
+                foundCard = col.cards.splice(idx, 1)[0];
+              }
+            });
+            // Add to new column
+            if (foundCard) {
+              const newCol = board.columns.find((c: any) => c.id === args.new_column);
+              if (newCol) {
+                newCol.cards.push(foundCard);
+                await invoke("save_kanban_config", { content: JSON.stringify(boards) });
+                output = `Successfully moved card to ${args.new_column}`;
+              } else {
+                output = `Column ${args.new_column} not found`;
+              }
+            } else {
+              output = `Card ${args.card_id} not found`;
+            }
+          }
+        }
+      } catch (e) {
+         output = `Error executing tool: ${e}`;
+      }
+
+      const newMessages = [...messageHistory, { role: "system" as const, content: `Tool Execution Result:\n${output}` }];
+      setMessages(newMessages);
+      
+      if (isLoopMode) {
+         runLoopStep(loopStateRef.current, "", [], newMessages);
+      }
+      setAutoExecToolCall(null);
+    };
+    executeAuto();
+  }, [autoExecToolCall, isLoopMode]);
+
   async function runInference(history: ChatMessage[], userMsg: ChatMessage, overrideModel?: string, overrideSystem?: ChatMessage) {
     let routeModel = overrideModel || model;
     let systemPrompt: ChatMessage | null = overrideSystem || null;
@@ -588,7 +668,10 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         read_file_text: 'read_file_text { "path": "absolute_path" } -> Returns the text content of a file.',
         write_file_text: 'write_file_text { "path": "absolute_path", "content": "text_content" } -> Writes/overwrites a local file with the specified content.',
         run_command: 'run_command { "command": "shell_command" } -> Executes a terminal command (PowerShell on Windows) and returns output.',
-        fetch_url: 'fetch_url { "url": "https://..." } -> Fetches URL content using HTTP GET.'
+        fetch_url: 'fetch_url { "url": "https://..." } -> Fetches URL content using HTTP GET.',
+        create_kanban_card: 'create_kanban_card { "column": "col-todo", "title": "...", "description": "..." } -> Creates a card on the Kanban Board. Valid columns: col-todo, col-inprog, col-done.',
+        update_kanban_card: 'update_kanban_card { "card_id": "card-...", "new_column": "col-done" } -> Moves an existing Kanban card to a new column.',
+        run_notebook_cell: 'run_notebook_cell { "language": "python", "code": "print(123)" } -> Safely executes Python or Node.js code in the local Notebook Sandbox and returns stdout/stderr.'
       };
 
       const toolExamples: Record<string, string> = {
@@ -596,7 +679,10 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         read_file_text: '- To read a file: [EXECUTE: read_file_text { "path": "C:\\\\Users\\\\Example\\\\Downloads\\\\notes.txt" }]',
         write_file_text: '- To write a file: [EXECUTE: write_file_text { "path": "C:\\\\Users\\\\Example\\\\Downloads\\\\new.txt", "content": "Hello World" }]',
         run_command: '- To run a command: [EXECUTE: run_command { "command": "echo \"Hello from terminal\"" }]',
-        fetch_url: '- To fetch a URL: [EXECUTE: fetch_url { "url": "https://raw.githubusercontent.com/example/README.md" }]'
+        fetch_url: '- To fetch a URL: [EXECUTE: fetch_url { "url": "https://raw.githubusercontent.com/example/README.md" }]',
+        create_kanban_card: '- To create a Kanban task: [EXECUTE: create_kanban_card { "column": "col-todo", "title": "Build UI", "description": "Write React code" }]',
+        update_kanban_card: '- To move a Kanban task to Done: [EXECUTE: update_kanban_card { "card_id": "card-12345", "new_column": "col-done" }]',
+        run_notebook_cell: '- To run Python code in the sandbox: [EXECUTE: run_notebook_cell { "language": "python", "code": "def hello():\\n  print(\'hi\')\\nhello()" }]'
       };
 
       const activeTools = Object.keys(enabledTools).filter(k => enabledTools[k]);
@@ -617,7 +703,7 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
           activeSkills.map(s => {
             const firstLine = s.content.split("\n")[0] || "";
             const cleanLine = firstLine.replace(/^#\s*/, "").trim();
-            return ` - ${s.name}: ${cleanLine}.\n   Read details using: [EXECUTE: read_file_text { "path": "C:\\\\Users\\\\Coraj\\\\AppData\\\\Roaming\\\\genesis-grid\\\\skills\\\\${s.name}.md" }]`;
+            return ` - ${s.name}: ${cleanLine}.\n   Read details using: [EXECUTE: read_file_text { "path": "%APPDATA%\\\\genesis-grid\\\\skills\\\\${s.name}.md" }]`;
           }).join("\n");
       }
 

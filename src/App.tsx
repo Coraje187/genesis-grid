@@ -10,9 +10,11 @@ import ChatHistory from "./components/ChatHistory";
 import MemoryCore from "./components/MemoryCore";
 import SkillsTools from "./components/SkillsTools";
 import AgentsView from "./components/AgentsView";
+import KanbanBoard from "./components/KanbanBoard";
+import Notebook from "./components/Notebook";
 import { SystemProfile } from "./lib/modelTiers";
 
-type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents";
+type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents" | "kanban" | "notebook";
 type Theme = "light" | "dark";
 
 interface InstallProgress {
@@ -192,6 +194,20 @@ export default function App() {
           </button>
           <button
             className="nav-item"
+            aria-current={view === "kanban" ? "page" : undefined}
+            onClick={() => setView("kanban")}
+          >
+            Kanban Board
+          </button>
+          <button
+            className="nav-item"
+            aria-current={view === "notebook" ? "page" : undefined}
+            onClick={() => setView("notebook")}
+          >
+            Open Notebook
+          </button>
+          <button
+            className="nav-item"
             aria-current={view === "memory" ? "page" : undefined}
             onClick={() => setView("memory")}
           >
@@ -251,6 +267,8 @@ export default function App() {
 
       <main className="main-view">
         {view === "agents" && <AgentsView installedModels={installedModels} />}
+        {view === "kanban" && <KanbanBoard />}
+        {view === "notebook" && <Notebook />}
         <div style={{ display: view === "chat" ? "flex" : "none", flexDirection: "column", height: "100%", flex: 1, minHeight: 0 }}>
           {activeSessionId ? (
             <Chat 

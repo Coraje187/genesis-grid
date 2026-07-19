@@ -1598,6 +1598,97 @@ fn save_agents_config(content: String) -> Result<(), String> {
     std::fs::write(agents_config_file(), content).map_err(|e| e.to_string())
 }
 
+// ---------- Kanban Management ----------
+
+fn kanban_config_file() -> std::path::PathBuf {
+    genesis_data_dir().join("kanban-config.json")
+}
+
+#[tauri::command]
+fn load_kanban_config() -> Result<String, String> {
+    let path = kanban_config_file();
+    if !path.exists() {
+        return Ok(r#"[]"#.to_string());
+    }
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_kanban_config(content: String) -> Result<(), String> {
+    let _v: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Invalid JSON format: {e}"))?;
+    std::fs::create_dir_all(genesis_data_dir()).map_err(|e| e.to_string())?;
+    std::fs::write(kanban_config_file(), content).map_err(|e| e.to_string())
+}
+
+// ---------- Notebook Sandbox ----------
+
+fn notebooks_dir() -> std::path::PathBuf {
+    genesis_data_dir().join("notebooks")
+}
+
+#[tauri::command]
+fn list_notebooks() -> Result<Vec<serde_json::Value>, String> {
+    let dir = notebooks_dir();
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut out = vec![];
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        if let Ok(entry) = entry {
+            if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Ok(text) = std::fs::read_to_string(entry.path()) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                        out.push(json);
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+fn save_notebook(id: String, content: String) -> Result<(), String> {
+    std::fs::create_dir_all(notebooks_dir()).map_err(|e| e.to_string())?;
+    let path = notebooks_dir().join(format!("{id}.json"));
+    std::fs::write(path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_notebook(id: String) -> Result<(), String> {
+    let path = notebooks_dir().join(format!("{id}.json"));
+    std::fs::remove_file(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn run_code_sandbox(language: String, code: String) -> Result<String, String> {
+    let output = match language.as_str() {
+        "python" => std::process::Command::new("python").arg("-c").arg(&code).output(),
+        "javascript" | "node" => std::process::Command::new("node").arg("-e").arg(&code).output(),
+        _ => return Err(format!("Unsupported language: {}", language)),
+    };
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            if out.status.success() {
+                if stdout.is_empty() && stderr.is_empty() {
+                    Ok("(No output)".to_string())
+                } else if !stderr.is_empty() {
+                    Ok(format!("{}\n{}", stdout, stderr))
+                } else {
+                    Ok(stdout)
+                }
+            } else {
+                Err(format!("{}\n{}", stdout, stderr))
+            }
+        }
+        Err(e) => Err(format!("Execution failed: {}", e)),
+    }
+}
+
 // ---------- Vault Management ----------
 
 #[derive(Serialize, Deserialize)]
@@ -1672,9 +1763,11 @@ fn scan_vault(path: String) -> Result<VaultGraph, String> {
         if let Ok(content) = std::fs::read_to_string(file_path) {
             let re = regex::Regex::new(r"\[\[(.*?)\]\]").unwrap();
             for cap in re.captures_iter(&content) {
-                let target_name = cap[1].to_string();
+                let target_name = cap[1].trim().to_lowercase();
                 // Find target file path
-                if let Some(target_file) = files.iter().find(|p| p.file_stem().unwrap_or_default().to_string_lossy() == target_name) {
+                if let Some(target_file) = files.iter().find(|p| {
+                    p.file_stem().unwrap_or_default().to_string_lossy().trim().to_lowercase() == target_name
+                }) {
                     links.push(VaultLink {
                         source: id.clone(),
                         target: target_file.to_string_lossy().to_string(),
@@ -1802,6 +1895,12 @@ fn main() {
             save_mcp_config,
             load_agents_config,
             save_agents_config,
+            load_kanban_config,
+            save_kanban_config,
+            list_notebooks,
+            save_notebook,
+            delete_notebook,
+            run_code_sandbox,
             start_telegram_bot,
             stop_telegram_bot,
             telegram_bot_status,
