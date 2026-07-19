@@ -1,6 +1,6 @@
 [package]
 name = "genesis-grid"
-version = "0.1.0"
+version = "2.0.0"
 description = "Genesis Grid — a one-click local AI desktop"
 edition = "2021"
 
