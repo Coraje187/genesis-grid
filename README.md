@@ -15,6 +15,13 @@ no parameter counts or quant jargon unless you go looking for them.
     the brand banner (circuit cyan `#2be9ff`, neon magenta `#ff2ec8`,
     ultraviolet `#9b3ffb` on void black `#05060d`).
 
+## Features
+
+- **Loop Agents**: Autonomous AI agents (Architect, Oracle, Cipher) that work together to solve complex tasks.
+- **Kanban Board**: A visual project manager that saves state locally. Loop agents can automatically create and move tasks across the board!
+- **Notebook Sandbox**: A Jupyter-style interface for executing Python/Node.js code locally. The Loop Agents use this sandbox to autonomously write and test their own code.
+- **Memory Core**: A local Markdown-based vault that acts as a second brain. Visualizes your notes as glowing orbs and lines!
+
 ## Getting set up (development)
 
 ```bash
