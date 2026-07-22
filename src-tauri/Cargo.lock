@@ -984,6 +984,7 @@ dependencies = [
 name = "genesis-grid"
 version = "2.0.0"
 dependencies = [
+ "base64 0.21.7",
  "dirs",
  "futures-util",
  "open 5.4.0",

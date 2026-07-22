@@ -68,6 +68,10 @@ export default function Chat({
   const [pendingToolCall, setPendingToolCall] = useState<{ name: string; args: any; messageHistory: ChatMessage[] } | null>(null);
   const [autoExecToolCall, setAutoExecToolCall] = useState<{ name: string; args: any; messageHistory: ChatMessage[] } | null>(null);
   const [downloadsPath, setDownloadsPath] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [transcribingVoice, setTranscribingVoice] = useState(false);
+  const mediaRecorderRef = useRef<any>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const [enabledTools, setEnabledTools] = useState<Record<string, boolean>>({});
   const [skillsList, setSkillsList] = useState<{ name: string; content: string }[]>([]);
@@ -87,7 +91,7 @@ export default function Chat({
   }, []);
 
   function refreshSkillsAndTools() {
-    const tools = ["list_directory", "read_file_text", "write_file_text", "run_command", "fetch_url", "create_kanban_card", "update_kanban_card", "run_notebook_cell"];
+    const tools = ["list_directory", "read_file_text", "write_file_text", "run_command", "fetch_url", "create_kanban_card", "update_kanban_card", "run_notebook_cell", "query_local_calendar", "query_local_email", "query_local_mbox_archive", "query_local_csv_log", "compress_codebase"];
     const toolsConfig: Record<string, boolean> = {};
     tools.forEach((t) => {
       const stored = window.localStorage.getItem(`tool_enabled_${t}`);
@@ -154,6 +158,55 @@ export default function Chat({
       fileInputRef.current.value = "";
     }
   }
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new (window as any).MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event: any) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Data = (reader.result as string).split(",")[1];
+          setTranscribingVoice(true);
+          try {
+            const res = await invoke<any>("transcribe_audio_emotion", { audioBase64: base64Data });
+            if (res.text && res.text.trim()) {
+              const emotionTag = `[User Tone: ${res.emotion.toUpperCase()}]`;
+              setDraft((prev) => prev ? `${prev}\n${emotionTag} ${res.text}` : `${emotionTag} ${res.text}`);
+            }
+          } catch (err) {
+            console.error("Voice transcription failed:", err);
+          } finally {
+            setTranscribingVoice(false);
+          }
+        };
+      };
+
+      mediaRecorder.start();
+      setRecording(true);
+    } catch (err) {
+      console.error("Failed to start voice recording:", err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+      mediaRecorderRef.current.stream.getTracks().forEach((track: any) => track.stop());
+    }
+  };
 
   function openExternalLink(url: string) {
     openShell(url).catch(() => {
@@ -648,7 +701,7 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
       const newMessages = [...messageHistory, { role: "system" as const, content: `Tool Execution Result:\n${output}` }];
       setMessages(newMessages);
       
-      if (isLoopMode) {
+      if (isLoopMode && loopStateRef.current !== "idle") {
          runLoopStep(loopStateRef.current, "", [], newMessages);
       }
       setAutoExecToolCall(null);
@@ -671,9 +724,14 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         fetch_url: 'fetch_url { "url": "https://..." } -> Fetches URL content using HTTP GET.',
         create_kanban_card: 'create_kanban_card { "column": "col-todo", "title": "...", "description": "..." } -> Creates a card on the Kanban Board. Valid columns: col-todo, col-inprog, col-done.',
         update_kanban_card: 'update_kanban_card { "card_id": "card-...", "new_column": "col-done" } -> Moves an existing Kanban card to a new column.',
-        run_notebook_cell: 'run_notebook_cell { "language": "python", "code": "print(123)" } -> Safely executes Python or Node.js code in the local Notebook Sandbox and returns stdout/stderr.'
+        run_notebook_cell: 'run_notebook_cell { "language": "python", "code": "print(123)" } -> Safely executes Python or Node.js code in the local Notebook Sandbox and returns stdout/stderr.',
+        query_local_calendar: 'query_local_calendar { "file_path": "absolute_path_to_ics_file", "query": "search_term" } -> Parses local .ics calendar file and returns events matching search term.',
+        query_local_email: 'query_local_email { "file_path": "absolute_path_to_eml_file", "query": "search_term" } -> Parses local .eml email and returns matching details.',
+        query_local_mbox_archive: 'query_local_mbox_archive { "file_path": "absolute_path_to_mbox_file", "query": "search_term" } -> Parses local .mbox email archive database and returns matches.',
+        query_local_csv_log: 'query_local_csv_log { "file_path": "absolute_path_to_csv_file", "query_column": "column_name", "query_value": "search_value", "row_limit": 100 } -> Queries rows in a CSV log file.',
+        compress_codebase: 'compress_codebase { "directory_path": "absolute_path_to_codebase" } -> Recursively scans a codebase and generates a token-saving compressed structural summary.'
       };
-
+ 
       const toolExamples: Record<string, string> = {
         list_directory: '- To list a directory: [EXECUTE: list_directory { "path": "C:\\\\Users\\\\Example\\\\Downloads" }]',
         read_file_text: '- To read a file: [EXECUTE: read_file_text { "path": "C:\\\\Users\\\\Example\\\\Downloads\\\\notes.txt" }]',
@@ -682,7 +740,12 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         fetch_url: '- To fetch a URL: [EXECUTE: fetch_url { "url": "https://raw.githubusercontent.com/example/README.md" }]',
         create_kanban_card: '- To create a Kanban task: [EXECUTE: create_kanban_card { "column": "col-todo", "title": "Build UI", "description": "Write React code" }]',
         update_kanban_card: '- To move a Kanban task to Done: [EXECUTE: update_kanban_card { "card_id": "card-12345", "new_column": "col-done" }]',
-        run_notebook_cell: '- To run Python code in the sandbox: [EXECUTE: run_notebook_cell { "language": "python", "code": "def hello():\\n  print(\'hi\')\\nhello()" }]'
+        run_notebook_cell: '- To run Python code in the sandbox: [EXECUTE: run_notebook_cell { "language": "python", "code": "def hello():\\n  print(\'hi\')\\nhello()" }]',
+        query_local_calendar: '- To search calendar events: [EXECUTE: query_local_calendar { "file_path": "C:\\\\Users\\\\Example\\\\Downloads\\\\calendar.ics", "query": "Meeting" }]',
+        query_local_email: '- To search an EML email file: [EXECUTE: query_local_email { "file_path": "C:\\\\Users\\\\Example\\\\Downloads\\\\invoice.eml", "query": "Payment" }]',
+        query_local_mbox_archive: '- To query an MBOX mail backup archive: [EXECUTE: query_local_mbox_archive { "file_path": "C:\\\\Users\\\\Example\\\\AppData\\\\Roaming\\\\Thunderbird\\\\Profiles\\\\archive.mbox", "query": "contract" }]',
+        query_local_csv_log: '- To filter heart rates in a CSV file: [EXECUTE: query_local_csv_log { "file_path": "C:\\\\Users\\\\Example\\\\Downloads\\\\health.csv", "query_column": "HeartRate", "query_value": "72", "row_limit": 10 }]',
+        compress_codebase: '- To summarize a codebase layout: [EXECUTE: compress_codebase { "directory_path": "C:\\\\Users\\\\Example\\\\Projects\\\\app" }]'
       };
 
       const activeTools = Object.keys(enabledTools).filter(k => enabledTools[k]);
@@ -1416,6 +1479,19 @@ ${wikiContent}
           onChange={handleFileChange} 
           multiple 
         />
+        <style>{`
+          @keyframes pulseRed {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.08); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+          }
+          .voice-rec-btn.recording {
+            animation: pulseRed 1.5s infinite ease-in-out;
+            color: #ff3b30 !important;
+            border-color: #ff3b30 !important;
+            background: rgba(255, 59, 48, 0.1) !important;
+          }
+        `}</style>
         <button 
           className="btn secondary" 
           onClick={() => fileInputRef.current?.click()}
@@ -1423,6 +1499,21 @@ ${wikiContent}
           style={{ padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           📎
+        </button>
+        <button 
+          className={`btn secondary voice-rec-btn ${recording ? "recording" : ""}`}
+          onClick={recording ? stopRecording : startRecording}
+          title={recording ? "Stop recording voice" : "Record voice prompt"}
+          style={{ 
+            padding: "0 16px", 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "center",
+            minWidth: 46
+          }}
+          disabled={transcribingVoice}
+        >
+          {transcribingVoice ? "⏳" : (recording ? "🛑" : "🎤")}
         </button>
         <textarea
           value={draft}

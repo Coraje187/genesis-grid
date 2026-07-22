@@ -1663,29 +1663,403 @@ fn delete_notebook(id: String) -> Result<(), String> {
 
 #[tauri::command]
 fn run_code_sandbox(language: String, code: String) -> Result<String, String> {
-    let output = match language.as_str() {
-        "python" => std::process::Command::new("python").arg("-c").arg(&code).output(),
-        "javascript" | "node" => std::process::Command::new("node").arg("-e").arg(&code).output(),
-        _ => return Err(format!("Unsupported language: {}", language)),
+    // 1. Check if Docker is available and running
+    let docker_check = std::process::Command::new("docker")
+        .arg("ps")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    let has_docker = match docker_check {
+        Ok(status) => status.success(),
+        Err(_) => false,
     };
+
+    if has_docker {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        
+        // Run in Docker sandbox!
+        let since_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+            
+        let temp_filename = format!("temp_sandbox_{}.{}", since_epoch, match language.as_str() {
+            "python" => "py",
+            "javascript" | "node" => "js",
+            _ => return Err(format!("Unsupported language: {}", language)),
+        });
+        
+        let temp_path = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(&temp_filename);
+            
+        std::fs::write(&temp_path, &code)
+            .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+        let container_image = "secure-grid-sandbox";
+        let script_runner = match language.as_str() {
+            "python" => "python3",
+            "javascript" | "node" => "node",
+            _ => "python3",
+        };
+
+        // Mount current directory (where temp file is written) to /workspace inside container
+        let dir_to_mount = temp_path.parent().unwrap().to_string_lossy().to_string();
+        let volume_arg = format!("{}:/workspace:ro", dir_to_mount);
+
+        let output = std::process::Command::new("docker")
+            .args([
+                "run",
+                "--rm",
+                "-v",
+                &volume_arg,
+                "--network",
+                "none",
+                "-m",
+                "256m",
+                "--cpus",
+                "1",
+                "-w",
+                "/workspace",
+                container_image,
+                script_runner,
+                &temp_filename,
+            ])
+            .output();
+
+        // Clean up the temp file
+        let _ = std::fs::remove_file(&temp_path);
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                if out.status.success() {
+                    if stdout.is_empty() && stderr.is_empty() {
+                        Ok("(No output)".to_string())
+                    } else if !stderr.is_empty() {
+                        Ok(format!("{}\n{}", stdout, stderr))
+                    } else {
+                        Ok(stdout)
+                    }
+                } else {
+                    Err(format!("{}\n{}", stdout, stderr))
+                }
+            }
+            Err(e) => Err(format!("Sandbox run failed: {}", e)),
+        }
+    } else {
+        // Fall back to local unsandboxed execution with a warning banner!
+        let output = match language.as_str() {
+            "python" => std::process::Command::new("python").arg("-c").arg(&code).output(),
+            "javascript" | "node" => std::process::Command::new("node").arg("-e").arg(&code).output(),
+            _ => return Err(format!("Unsupported language: {}", language)),
+        };
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let warning = "[WARNING: Running UNSANDBOXED directly on host system because Docker is not running]\n\n";
+                if out.status.success() {
+                    if stdout.is_empty() && stderr.is_empty() {
+                        Ok(format!("{}{}", warning, "(No output)"))
+                    } else if !stderr.is_empty() {
+                        Ok(format!("{}{}\n{}", warning, stdout, stderr))
+                    } else {
+                        Ok(format!("{}{}", warning, stdout))
+                    }
+                } else {
+                    Err(format!("{}{}\n{}", warning, stdout, stderr))
+                }
+            }
+            Err(e) => Err(format!("Local execution failed: {}", e)),
+        }
+    }
+}
+
+#[tauri::command]
+fn transcribe_audio_emotion(audio_base64: String) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Decode the base64 string
+    let audio_bytes = base64::engine::general_purpose::STANDARD.decode(&audio_base64)
+        .map_err(|e| format!("Failed to decode base64 audio: {}", e))?;
+
+    // Create a unique temp file name
+    let since_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    
+    let temp_dir = std::env::temp_dir();
+    let audio_filename = format!("temp_recording_{}.webm", since_epoch);
+    let audio_path = temp_dir.join(&audio_filename);
+    
+    // Write binary bytes to file
+    std::fs::write(&audio_path, &audio_bytes)
+        .map_err(|e| format!("Failed to write temp audio file: {}", e))?;
+
+    // Prepare outputs base path
+    let output_base = temp_dir.join(format!("output_{}", since_epoch));
+    let output_base_str = output_base.to_string_lossy().to_string();
+
+    // Call the Python script dynamically from the user's home directory
+    let home = dirs::home_dir().ok_or_else(|| "Could not locate user home directory".to_string())?;
+    let py_script_path = home
+        .join(".gemini")
+        .join("antigravity")
+        .join("scratch")
+        .join("genesis-estt")
+        .join("transcribe_emotion.py");
+    let py_script_path_str = py_script_path.to_string_lossy().to_string();
+    
+    let output = std::process::Command::new("python")
+        .arg(&py_script_path_str)
+        .arg(audio_path.to_string_lossy().to_string())
+        .arg(&output_base_str)
+        .output();
+
+    // Clean up the temporary input audio file
+    let _ = std::fs::remove_file(&audio_path);
+
+    match output {
+        Ok(out) => {
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                return Err(format!("Transcribing script failed.\nStdout: {}\nStderr: {}", stdout, stderr));
+            }
+        }
+        Err(e) => return Err(format!("Failed to spawn Python process: {}", e)),
+    }
+
+    // Read the generated JSON file: <output_base>_estt.json
+    let json_path = format!("{}_estt.json", output_base_str);
+    let json_content = std::fs::read_to_string(&json_path)
+        .map_err(|e| format!("Failed to read transcript output JSON: {}", e))?;
+
+    // Parse the JSON
+    let parsed_json: serde_json::Value = serde_json::from_str(&json_content)
+        .map_err(|e| format!("Failed to parse transcript output JSON: {}", e))?;
+
+    // Cleanup generated outputs
+    let _ = std::fs::remove_file(&json_path);
+    let srt_path = format!("{}_estt.srt", output_base_str);
+    let _ = std::fs::remove_file(srt_path);
+
+    // Extract dominant emotion from segments
+    let mut dominant_emotion = "neutral".to_string();
+    
+    if let Some(segments) = parsed_json.get("segments").and_then(|s| s.as_array()) {
+        if !segments.is_empty() {
+            let mut emotion_scores = std::collections::HashMap::new();
+            for seg in segments {
+                if let (Some(emo), Some(conf)) = (
+                    seg.get("emotion").and_then(|e| e.as_str()),
+                    seg.get("confidence").and_then(|c| c.as_f64())
+                ) {
+                    let score = emotion_scores.entry(emo.to_string()).or_insert(0.0);
+                    *score += conf;
+                }
+            }
+            let mut max_score = -1.0;
+            for (emo, score) in emotion_scores {
+                if score > max_score {
+                    max_score = score;
+                    dominant_emotion = emo;
+                }
+            }
+        }
+    }
+
+    let full_text = parsed_json.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+
+    Ok(serde_json::json!({
+        "text": full_text,
+        "emotion": dominant_emotion
+    }))
+}
+
+#[tauri::command]
+fn query_local_calendar(file_path: String, query: String) -> Result<String, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not locate user home directory".to_string())?;
+    let script_path = home
+        .join(".gemini")
+        .join("antigravity")
+        .join("scratch")
+        .join("local-data-mcp-connector")
+        .join("mcp_connector.py");
+    
+    let output = std::process::Command::new("python")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("query_calendar")
+        .arg(&file_path)
+        .arg(&query)
+        .output();
 
     match output {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
             if out.status.success() {
-                if stdout.is_empty() && stderr.is_empty() {
-                    Ok("(No output)".to_string())
-                } else if !stderr.is_empty() {
-                    Ok(format!("{}\n{}", stdout, stderr))
-                } else {
-                    Ok(stdout)
-                }
+                Ok(stdout)
             } else {
-                Err(format!("{}\n{}", stdout, stderr))
+                Err(format!("Query failed:\nStdout: {}\nStderr: {}", stdout, stderr))
             }
         }
-        Err(e) => Err(format!("Execution failed: {}", e)),
+        Err(e) => Err(format!("Failed to execute python: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn query_local_email(file_path: String, query: String) -> Result<String, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not locate user home directory".to_string())?;
+    let script_path = home
+        .join(".gemini")
+        .join("antigravity")
+        .join("scratch")
+        .join("local-data-mcp-connector")
+        .join("mcp_connector.py");
+    
+    let output = std::process::Command::new("python")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("query_email")
+        .arg(&file_path)
+        .arg(&query)
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            if out.status.success() {
+                Ok(stdout)
+            } else {
+                Err(format!("Query failed:\nStdout: {}\nStderr: {}", stdout, stderr))
+            }
+        }
+        Err(e) => Err(format!("Failed to execute python: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn query_local_mbox_archive(file_path: String, query: String) -> Result<String, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not locate user home directory".to_string())?;
+    let script_path = home
+        .join(".gemini")
+        .join("antigravity")
+        .join("scratch")
+        .join("local-data-mcp-connector")
+        .join("mcp_connector.py");
+    
+    let output = std::process::Command::new("python")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("query_mbox_archive")
+        .arg(&file_path)
+        .arg(&query)
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            if out.status.success() {
+                Ok(stdout)
+            } else {
+                Err(format!("Query failed:\nStdout: {}\nStderr: {}", stdout, stderr))
+            }
+        }
+        Err(e) => Err(format!("Failed to execute python: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn query_local_csv_log(
+    file_path: String, 
+    query_column: Option<String>, 
+    query_value: Option<String>, 
+    row_limit: Option<usize>
+) -> Result<String, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not locate user home directory".to_string())?;
+    let script_path = home
+        .join(".gemini")
+        .join("antigravity")
+        .join("scratch")
+        .join("local-data-mcp-connector")
+        .join("mcp_connector.py");
+    
+    let col = query_column.unwrap_or_else(|| "None".to_string());
+    let val = query_value.unwrap_or_else(|| "None".to_string());
+    let limit = row_limit.unwrap_or(100).to_string();
+    
+    let output = std::process::Command::new("python")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("query_csv_log")
+        .arg(&file_path)
+        .arg(&col)
+        .arg(&val)
+        .arg(&limit)
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            if out.status.success() {
+                Ok(stdout)
+            } else {
+                Err(format!("Query failed:\nStdout: {}\nStderr: {}", stdout, stderr))
+            }
+        }
+        Err(e) => Err(format!("Failed to execute python: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn compress_codebase(directory_path: String) -> Result<String, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not locate user home directory".to_string())?;
+    let script_path = home
+        .join(".gemini")
+        .join("antigravity")
+        .join("scratch")
+        .join("zero-token-ast-compressor")
+        .join("ast_compressor.py");
+    
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let since_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let temp_out = std::env::temp_dir().join(format!("ast_comp_out_{}.txt", since_epoch));
+    let temp_out_str = temp_out.to_string_lossy().to_string();
+
+    let output = std::process::Command::new("python")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg(&directory_path)
+        .arg(&temp_out_str)
+        .output();
+
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                let content = std::fs::read_to_string(&temp_out)
+                    .map_err(|e| format!("Failed to read compression output: {}", e))?;
+                let _ = std::fs::remove_file(&temp_out);
+                Ok(content)
+            } else {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let _ = std::fs::remove_file(&temp_out);
+                Err(format!("Compression failed:\nStdout: {}\nStderr: {}", stdout, stderr))
+            }
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp_out);
+            Err(format!("Failed to execute python: {}", e))
+        }
     }
 }
 
@@ -1901,6 +2275,12 @@ fn main() {
             save_notebook,
             delete_notebook,
             run_code_sandbox,
+            transcribe_audio_emotion,
+            query_local_calendar,
+            query_local_email,
+            query_local_mbox_archive,
+            query_local_csv_log,
+            compress_codebase,
             start_telegram_bot,
             stop_telegram_bot,
             telegram_bot_status,

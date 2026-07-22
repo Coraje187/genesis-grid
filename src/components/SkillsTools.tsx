@@ -206,6 +206,14 @@ export default function SkillsTools() {
     { id: "write_file_text", name: "Write File Content", desc: "Allows creating or overwriting local text files." },
     { id: "run_command", name: "Run Shell Command", desc: "Executes shell commands (PowerShell on Windows) and returns output." },
     { id: "fetch_url", name: "Fetch Web Content", desc: "HTTP tool to retrieve the text content of web URLs." },
+    { id: "create_kanban_card", name: "Create Kanban Card", desc: "Allows creating tasks directly on the project board." },
+    { id: "update_kanban_card", name: "Update Kanban Card", desc: "Allows moving project board tasks between columns." },
+    { id: "run_notebook_cell", name: "Notebook Sandbox Executor", desc: "Executes scripts securely inside the sandbox environment." },
+    { id: "query_local_calendar", name: "Query Local Calendar", desc: "Allows the agent to search and parse local .ics calendar files offline." },
+    { id: "query_local_email", name: "Query Local Email", desc: "Allows the agent to parse local .eml email files offline." },
+    { id: "query_local_mbox_archive", name: "Query Local Mailbox Archive", desc: "Allows the agent to search local Thunderbird/Google Takeout .mbox email backups." },
+    { id: "query_local_csv_log", name: "Query Local CSV Spreadsheet", desc: "Allows the agent to filter and search offline local .csv spreadsheets." },
+    { id: "compress_codebase", name: "Codebase AST Compressor", desc: "Generates compressed, token-saving structural summaries of code folders." }
   ];
 
   useEffect(() => {
