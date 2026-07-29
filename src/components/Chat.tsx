@@ -683,7 +683,11 @@ Do you want to allow this?`);
 
       let output = "";
       try {
-        if (name === "run_notebook_cell") {
+        if (name === "search_web") {
+          output = await invoke("search_web", { query: args.query || "" });
+        } else if (name === "search_codebase") {
+          output = await invoke("search_codebase", { directoryPath: args.directory_path || "", regexPattern: args.regex_pattern || "" });
+        } else if (name === "run_notebook_cell") {
           output = await invoke("run_code_sandbox", { language: args.language || "python", code: args.code || "" });
         } else if (name === "create_kanban_card") {
           const json = await invoke<string>("load_kanban_config");
@@ -764,7 +768,9 @@ Do you want to allow this?`);
         query_local_email: 'query_local_email { "file_path": "absolute_path_to_eml_file", "query": "search_term" } -> Parses local .eml email and returns matching details.',
         query_local_mbox_archive: 'query_local_mbox_archive { "file_path": "absolute_path_to_mbox_file", "query": "search_term" } -> Parses local .mbox email archive database and returns matches.',
         query_local_csv_log: 'query_local_csv_log { "file_path": "absolute_path_to_csv_file", "query_column": "column_name", "query_value": "search_value", "row_limit": 100 } -> Queries rows in a CSV log file.',
-        compress_codebase: 'compress_codebase { "directory_path": "absolute_path_to_codebase" } -> Recursively scans a codebase and generates a token-saving compressed structural summary.'
+        compress_codebase: 'compress_codebase { "directory_path": "absolute_path_to_codebase" } -> Recursively scans a codebase and generates a token-saving compressed structural summary.',
+        search_web: 'search_web { "query": "search_term" } -> Searches the web using DuckDuckGo and returns snippet results.',
+        search_codebase: 'search_codebase { "directory_path": "absolute_path", "regex_pattern": "pattern" } -> Recursively searches files for a regex pattern.'
       };
  
       const toolExamples: Record<string, string> = {

@@ -1409,6 +1409,82 @@ fn write_file_text(path: String, content: String) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
+
+#[tauri::command]
+async fn search_web(query: String) -> Result<String, String> {
+    let url = format!("https://html.duckduckgo.com/html/?q={}", urlencoding::encode(&query));
+    
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let html = res.text().await.map_err(|e| e.to_string())?;
+
+    let document = scraper::Html::parse_document(&html);
+    let result_selector = scraper::Selector::parse(".result").unwrap();
+    let title_selector = scraper::Selector::parse(".result__title").unwrap();
+    let snippet_selector = scraper::Selector::parse(".result__snippet").unwrap();
+    let url_selector = scraper::Selector::parse(".result__url").unwrap();
+
+    let mut results = Vec::new();
+
+    for element in document.select(&result_selector).take(5) {
+        let title = element.select(&title_selector).next().map(|el| el.text().collect::<String>()).unwrap_or_default().trim().to_string();
+        let snippet = element.select(&snippet_selector).next().map(|el| el.text().collect::<String>()).unwrap_or_default().trim().to_string();
+        let link = element.select(&url_selector).next().map(|el| el.text().collect::<String>()).unwrap_or_default().trim().to_string();
+        
+        if !title.is_empty() {
+            results.push(format!("Title: {}\nURL: {}\nSnippet: {}\n---", title, link, snippet));
+        }
+    }
+
+    if results.is_empty() {
+        Ok("No results found.".to_string())
+    } else {
+        Ok(results.join("\n"))
+    }
+}
+
+#[tauri::command]
+fn search_codebase(directory_path: String, regex_pattern: String) -> Result<String, String> {
+    let re = regex::Regex::new(&regex_pattern).map_err(|e| e.to_string())?;
+    let mut results = Vec::new();
+    let mut match_count = 0;
+    
+    for entry in walkdir::WalkDir::new(&directory_path)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+    {
+        let path_str = entry.path().to_string_lossy().to_string();
+        
+        if path_str.contains(".git") || path_str.contains("node_modules") || path_str.contains("\\target\\") {
+            continue;
+        }
+
+        if let Ok(content) = std::fs::read_to_string(entry.path()) {
+            for (line_num, line) in content.lines().enumerate() {
+                if re.is_match(line) {
+                    results.push(format!("{}:{} - {}", path_str, line_num + 1, line.trim()));
+                    match_count += 1;
+                    if match_count > 100 {
+                        results.push("... (Truncated, more than 100 matches found)".to_string());
+                        return Ok(results.join("\n"));
+                    }
+                }
+            }
+        }
+    }
+
+    if results.is_empty() {
+        Ok("No matches found.".to_string())
+    } else {
+        Ok(results.join("\n"))
+    }
+}
+
 #[tauri::command]
 fn run_command(command: String) -> Result<String, String> {
     let output = if cfg!(target_os = "windows") {
@@ -2291,6 +2367,8 @@ fn main() {
             read_file_text,
             write_file_text,
             run_command,
+            search_web,
+            search_codebase,
             fetch_url,
             list_skills_files,
             save_skill_file,
