@@ -161,16 +161,7 @@ export default function SkillsTools() {
     setCustomKey(current.customKey);
     setCustomUrl(current.customUrl);
 
-    window.localStorage.setItem("freellmapi_unified_key", current.unifiedKey);
-    window.localStorage.setItem("freellmapi_default_model", current.defaultModel);
-    window.localStorage.setItem("freellmapi_openrouter_key", current.openrouterKey);
-    window.localStorage.setItem("freellmapi_openrouter_model", current.openrouterModel);
-    window.localStorage.setItem("freellmapi_openai_key", current.openaiKey);
-    window.localStorage.setItem("freellmapi_openai_model", current.openaiModel);
-    window.localStorage.setItem("freellmapi_gemini_key", current.geminiKey);
-    window.localStorage.setItem("freellmapi_gemini_model", current.geminiModel);
-    window.localStorage.setItem("freellmapi_custom_key", current.customKey);
-    window.localStorage.setItem("freellmapi_custom_url", current.customUrl);
+/* Keys moved to backend storage for security */
 
     invoke("save_freellmapi_settings", {
       unifiedKey: current.unifiedKey,
@@ -237,12 +228,13 @@ export default function SkillsTools() {
       .catch(() => {});
 
     // Load Telegram configurations
-    const storedToken = window.localStorage.getItem("tg_bot_token") || "";
-    const storedChatId = window.localStorage.getItem("tg_allowed_chat_id") || "";
-    const storedModel = window.localStorage.getItem("tg_target_model") || "genesis";
-    setTgToken(storedToken);
-    setTgChatId(storedChatId);
-    setTgModel(storedModel);
+    invoke<any>("load_telegram_settings")
+      .then((settings) => {
+        setTgToken(settings.bot_token || "");
+        setTgChatId(settings.chat_id || "");
+        setTgModel(settings.model || "genesis");
+      })
+      .catch(() => {});
 
     // Query active bot status
     invoke<boolean>("telegram_bot_status")
@@ -362,16 +354,7 @@ export default function SkillsTools() {
     setCustomUrl(current.customUrl);
 
     // Save to localStorage immediately for fast frontend sync
-    window.localStorage.setItem("freellmapi_unified_key", current.unifiedKey);
-    window.localStorage.setItem("freellmapi_default_model", current.defaultModel);
-    window.localStorage.setItem("freellmapi_openrouter_key", current.openrouterKey);
-    window.localStorage.setItem("freellmapi_openrouter_model", current.openrouterModel);
-    window.localStorage.setItem("freellmapi_openai_key", current.openaiKey);
-    window.localStorage.setItem("freellmapi_openai_model", current.openaiModel);
-    window.localStorage.setItem("freellmapi_gemini_key", current.geminiKey);
-    window.localStorage.setItem("freellmapi_gemini_model", current.geminiModel);
-    window.localStorage.setItem("freellmapi_custom_key", current.customKey);
-    window.localStorage.setItem("freellmapi_custom_url", current.customUrl);
+/* Keys moved to backend storage for security */
 
     invoke("save_freellmapi_settings", {
       unifiedKey: current.unifiedKey,
@@ -528,9 +511,7 @@ export default function SkillsTools() {
         return;
       }
 
-      window.localStorage.setItem("tg_bot_token", tgToken.trim());
-      window.localStorage.setItem("tg_allowed_chat_id", tgChatId.trim());
-      window.localStorage.setItem("tg_target_model", tgModel);
+      invoke("save_telegram_settings", { botToken: tgToken.trim(), chatId: tgChatId.trim(), model: tgModel });
 
       invoke<string>("start_telegram_bot", {
         token: tgToken.trim(),

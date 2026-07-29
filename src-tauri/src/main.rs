@@ -720,6 +720,34 @@ struct FreeLlmApiSettings {
     custom_key: Option<String>,
 }
 
+
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+struct TelegramSettings {
+    bot_token: String,
+    chat_id: String,
+    model: String,
+}
+
+fn telegram_settings_file() -> std::path::PathBuf {
+    genesis_data_dir().join("telegram-settings.json")
+}
+
+#[tauri::command]
+fn load_telegram_settings() -> TelegramSettings {
+    std::fs::read_to_string(telegram_settings_file())
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_telegram_settings(bot_token: String, chat_id: String, model: String) -> Result<(), String> {
+    std::fs::create_dir_all(genesis_data_dir()).map_err(|e| e.to_string())?;
+    let settings = TelegramSettings { bot_token, chat_id, model };
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    std::fs::write(telegram_settings_file(), json).map_err(|e| e.to_string())
+}
+
 fn freellmapi_settings_file() -> std::path::PathBuf {
     genesis_data_dir().join("freellmapi-settings.json")
 }
@@ -2241,6 +2269,8 @@ fn main() {
             chat_via_cloud,
             fetch_openrouter_free_models,
             load_freellmapi_settings,
+            save_telegram_settings,
+            load_telegram_settings,
             save_freellmapi_settings,
             list_projects,
             create_project,
