@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import HardwareCheck from "./components/HardwareCheck";
@@ -35,6 +36,7 @@ export default function App() {
   const [installing, setInstalling] = useState(false);
   const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string>("");
 
   function refreshInstalledModels() {
     invoke<string[]>("list_installed_models").then(setInstalledModels).catch(() => setInstalledModels([]));
@@ -43,6 +45,10 @@ export default function App() {
   function checkOllamaServer() {
     invoke<boolean>("ollama_server_running").then(setOllamaServerRunning).catch(() => setOllamaServerRunning(false));
   }
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(console.error);
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -256,12 +262,15 @@ export default function App() {
           </button>
         </div>
 
-        <div 
+                <div 
           className="brand-footer"
           onClick={() => invoke("open_url", { url: "https://genesisgridlabs.xyz/" })}
           style={{ cursor: "pointer", textDecoration: "underline" }}
         >
-          © 2026 Genesis Grid Labs™
+          Ac 2026 Genesis Grid Labs,
+          <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textDecoration: "none" }}>
+            v{appVersion}
+          </div>
         </div>
       </aside>
 
