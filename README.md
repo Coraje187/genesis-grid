@@ -63,6 +63,30 @@ This is a **false positive** that occurs because the executable is not digitally
 - If your antivirus blocks it, you may need to temporarily whitelist the `.exe` file.
 All source code is fully transparent in this repository for your peace of mind.
 
+### Troubleshooting: "App is damaged and can't be opened" (macOS)
+
+This is a very common macOS security error caused by Gatekeeper. When a Mac downloads an app from outside the Mac App Store (and it isn't properly signed or notarized by an Apple Developer), macOS flags it with a "quarantine" attribute and will often claim the app is "damaged" to prevent you from opening it.
+
+You can easily fix this by removing that quarantine flag using the Mac's Terminal. Here is how:
+
+**Step 1: Move the app to the Applications folder**
+If you haven't already, drag the "Genesis Grid" app from the disk image (`.dmg`) or your Downloads folder into your **Applications** folder. This makes the next step much easier.
+
+**Step 2: Run a Terminal command to remove the quarantine flag**
+1. Open the **Terminal** app on your Mac (you can find this by pressing `Command + Space` to open Spotlight search, typing "Terminal", and hitting Enter).
+2. Copy and paste the following command into the Terminal:
+
+```bash
+xattr -cr /Applications/Genesis\ Grid.app
+```
+
+*(Note: If the app is named slightly differently, like `GenesisGrid.app` without a space, adjust the command accordingly, e.g., `xattr -cr /Applications/GenesisGrid.app`. If you didn't put it in the Applications folder, you can type `xattr -cr ` with a space at the end, and then drag and drop the Genesis Grid app directly into the Terminal window to auto-fill the correct path).*
+
+3. Press **Enter**. (It might ask for your Mac login password. When typing the password, no characters will show up on the screen, which is normal. Just type it and press Enter).
+
+**Step 3: Open the app**
+Once the command runs successfully (it usually just drops to a new line without any message), you should be able to go to your Applications folder and open "Genesis Grid" normally!
+
 ## Building locally instead
 
 If you'd rather build on your own machine (both are free):
