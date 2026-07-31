@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
+import { checkUpdate, installUpdate } from "@tauri-apps/api/updater";
+import { relaunch } from "@tauri-apps/api/process";
 import { useTranslation } from "react-i18next";
 
 interface SkillFile {
@@ -20,6 +22,45 @@ interface McpConfig {
 
 export default function SkillsTools() {
   const { t, i18n } = useTranslation();
+
+  const [updateStatus, setUpdateStatus] = useState<string>("");
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState<any>(null);
+
+  async function handleCheckUpdate() {
+    setCheckingUpdate(true);
+    setUpdateStatus("Checking for updates...");
+    try {
+      const { shouldUpdate, manifest } = await checkUpdate();
+      if (shouldUpdate) {
+        setUpdateAvailable(manifest);
+        setUpdateStatus(`Update v${manifest?.version} available!`);
+      } else {
+        setUpdateStatus("You are on the latest version.");
+        setTimeout(() => setUpdateStatus(""), 3000);
+      }
+    } catch (e) {
+      console.error(e);
+      setUpdateStatus("Update check failed.");
+      setTimeout(() => setUpdateStatus(""), 3000);
+    }
+    setCheckingUpdate(false);
+  }
+
+  async function handleInstallUpdate() {
+    setInstallingUpdate(true);
+    setUpdateStatus("Downloading and installing...");
+    try {
+      await installUpdate();
+      setUpdateStatus("Restarting app...");
+      await relaunch();
+    } catch (e) {
+      console.error(e);
+      setUpdateStatus("Install failed.");
+      setInstallingUpdate(false);
+    }
+  }
   const [skills, setSkills] = useState<SkillFile[]>([]);
   const [enabledTools, setEnabledTools] = useState<Record<string, boolean>>({});
   const [enabledSkills, setEnabledSkills] = useState<Record<string, boolean>>({});
@@ -582,6 +623,31 @@ export default function SkillsTools() {
             <option value="hi">हिन्दी (HI)</option>
             <option value="pt-BR">Português (BR)</option>
           </select>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
+          <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+            {updateStatus}
+          </span>
+          {updateAvailable ? (
+            <button 
+              className="btn" 
+              onClick={handleInstallUpdate} 
+              disabled={installingUpdate}
+              style={{ background: "var(--accent)", color: "#fff", padding: "4px 12px", fontSize: 13 }}
+            >
+              {installingUpdate ? "Installing..." : "Install Update & Restart"}
+            </button>
+          ) : (
+            <button 
+              className="btn" 
+              onClick={handleCheckUpdate} 
+              disabled={checkingUpdate}
+              style={{ padding: "4px 12px", fontSize: 13 }}
+            >
+              {checkingUpdate ? "Checking..." : "Check for Updates"}
+            </button>
+          )}
         </div>
       </div>
 

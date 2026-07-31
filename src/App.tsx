@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { getVersion } from "@tauri-apps/api/app";
+import { checkUpdate, installUpdate } from "@tauri-apps/api/updater";
+import { relaunch } from "@tauri-apps/api/process";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import HardwareCheck from "./components/HardwareCheck";
@@ -37,6 +39,8 @@ export default function App() {
   const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
+  const [updateAvailable, setUpdateAvailable] = useState<any>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
 
   function refreshInstalledModels() {
     invoke<string[]>("list_installed_models").then(setInstalledModels).catch(() => setInstalledModels([]));
@@ -48,6 +52,17 @@ export default function App() {
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(console.error);
+    async function runUpdateCheck() {
+      try {
+        const { shouldUpdate, manifest } = await checkUpdate();
+        if (shouldUpdate) {
+          setUpdateAvailable(manifest);
+        }
+      } catch (error) {
+        console.error("Update check failed", error);
+      }
+    }
+    runUpdateCheck();
   }, []);
 
   useEffect(() => {
@@ -121,6 +136,29 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="wordmark">Genesis Grid</div>
+
+        {updateAvailable && (
+          <div className="card" style={{ padding: 12, fontSize: 12, background: "var(--accent)", color: "#fff", border: "none" }}>
+            Update v{updateAvailable.version} is available!
+            <button
+              className="btn"
+              style={{ marginTop: 8, width: "100%", background: "#fff", color: "var(--accent)" }}
+              onClick={async () => {
+                setInstallingUpdate(true);
+                try {
+                  await installUpdate();
+                  await relaunch();
+                } catch (e) {
+                  console.error(e);
+                  setInstallingUpdate(false);
+                }
+              }}
+              disabled={installingUpdate}
+            >
+              {installingUpdate ? "Installing…" : "Install & Restart"}
+            </button>
+          </div>
+        )}
 
         {ollamaReady === false && (
           <div className="card" style={{ padding: 12, fontSize: 12 }}>
