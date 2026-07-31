@@ -580,6 +580,7 @@ export default function SkillsTools() {
             <option value="de">Deutsch (DE)</option>
             <option value="ja">日本語 (JA)</option>
             <option value="hi">हिन्दी (HI)</option>
+            <option value="pt-BR">Português (BR)</option>
           </select>
         </div>
       </div>

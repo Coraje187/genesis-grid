@@ -86,6 +86,18 @@ const resources = {
       "settings": "सेटिंग्स",
       "language": "भाषा"
     }
+  },
+  "pt-BR": {
+    translation: {
+      "chat": "Bate-papo",
+      "chatsAndProjects": "Bate-papos e projetos",
+      "memoryCore": "Núcleo de Memória",
+      "myMachine": "Minha máquina",
+      "modelLibrary": "Biblioteca de modelos",
+      "useOnlineInstead": "Usar online",
+      "settings": "Configurações",
+      "language": "Idioma"
+    }
   }
 };
 

@@ -449,6 +449,16 @@ async fn setup_freellmapi(window: tauri::Window) -> Result<String, String> {
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
+
+        // Patch FreeLLMAPI to fix React 18 children type error in markdown.tsx
+        let markdown_tsx_path = dir.join("client/src/components/markdown.tsx");
+        if let Ok(content) = std::fs::read_to_string(&markdown_tsx_path) {
+            let patched = content.replace(
+                "(children as React.ReactElement)?.props?.children",
+                "(children as any)?.props?.children"
+            );
+            let _ = std::fs::write(&markdown_tsx_path, patched);
+        }
     }
 
     emit_progress(&window, "freellmapi-setup-progress", "installing", 40, "Installing dependencies (npm install)…");
