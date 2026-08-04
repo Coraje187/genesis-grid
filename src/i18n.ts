@@ -98,6 +98,42 @@ const resources = {
       "settings": "Configurações",
       "language": "Idioma"
     }
+  },
+  chr: {
+    translation: {
+      "chat": "ᏗᎵᏃᎮᏗ",
+      "chatsAndProjects": "ᏗᎵᏃᎮᏗ ᎠᎴ ᏗᎦᎸᏫᏍᏓᏁᏗ",
+      "memoryCore": "ᎠᏅᏓᏗᏍᏗ ᎠᏰᎵ",
+      "myMachine": "ᎠᏆᏤᎵ ᏔᎷᎩᏍᎩ",
+      "modelLibrary": "ᏗᏟᎶᏍᏔᏅ ᏗᎪᏪᎵ ᏗᏍᏆᏂᎪᏛ",
+      "useOnlineInstead": "ᎠᎺᏉᎯ ᎬᏗᏍᏗ",
+      "settings": "ᎪᏢᏒᎢ",
+      "language": "ᎦᏬᏂᎯᏍᏗ"
+    }
+  },
+  bg: {
+    translation: {
+      "chat": "Чат",
+      "chatsAndProjects": "Чатове и проекти",
+      "memoryCore": "Ядро на паметта",
+      "myMachine": "Моята машина",
+      "modelLibrary": "Библиотека с модели",
+      "useOnlineInstead": "Използвай онлайн",
+      "settings": "Настройки",
+      "language": "Език"
+    }
+  },
+  tl: {
+    translation: {
+      "chat": "Chat",
+      "chatsAndProjects": "Mga Chat at Proyekto",
+      "memoryCore": "Memory Core",
+      "myMachine": "Aking makina",
+      "modelLibrary": "Library ng modelo",
+      "useOnlineInstead": "Gamitin online",
+      "settings": "Mga Setting",
+      "language": "Wika"
+    }
   }
 };
 

@@ -1409,9 +1409,67 @@ fn list_directory(path: String) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
+#[derive(Serialize)]
+struct FileEntry {
+    name: String,
+    is_dir: bool,
+}
+
+#[tauri::command]
+fn get_file_tree(path: String) -> Result<Vec<FileEntry>, String> {
+    let dir = std::path::Path::new(&path);
+    if !dir.exists() {
+        return Err("Directory does not exist".to_string());
+    }
+    let mut files = vec![];
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        if let Ok(entry) = entry {
+            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+            files.push(FileEntry {
+                name: entry.file_name().to_string_lossy().to_string(),
+                is_dir,
+            });
+        }
+    }
+    files.sort_by(|a, b| {
+        if a.is_dir && !b.is_dir {
+            std::cmp::Ordering::Less
+        } else if !a.is_dir && b.is_dir {
+            std::cmp::Ordering::Greater
+        } else {
+            a.name.cmp(&b.name)
+        }
+    });
+    Ok(files)
+}
+
+#[tauri::command]
+fn get_home_dir() -> Result<String, String> {
+    dirs::home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "Could not determine home directory".to_string())
+}
+
+fn sanitize_rag_chunk(text: &str) -> String {
+    let patterns = [
+        r"(?i)system\s*directive:",
+        r"(?i)ignore\s+all\s+previous\s+instructions",
+        r"(?i)\[system\s*override\]",
+        r"(?i)<\|im_start\|",
+    ];
+    let mut sanitized = text.to_string();
+    for pattern in patterns {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            sanitized = re.replace_all(&sanitized, "[FILTERED_INJECTION_PAYLOAD]").to_string();
+        }
+    }
+    format!("<untrusted_context>\n{}\n</untrusted_context>", sanitized)
+}
+
 #[tauri::command]
 fn read_file_text(path: String) -> Result<String, String> {
-    std::fs::read_to_string(path).map_err(|e| e.to_string())
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    Ok(sanitize_rag_chunk(&content))
 }
 
 #[tauri::command]
@@ -1545,7 +1603,7 @@ async fn fetch_url(url: String) -> Result<String, String> {
         return Err(format!("HTTP returned status {status}: {text}"));
     }
 
-    Ok(text)
+    Ok(sanitize_rag_chunk(&text))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -2374,6 +2432,8 @@ fn main() {
             save_genesis_wiki,
                         get_downloads_folder,
             list_directory,
+            get_file_tree,
+            get_home_dir,
             read_file_text,
             write_file_text,
             run_command,

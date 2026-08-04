@@ -215,7 +215,17 @@ export default function OnlineFallback() {
             </p>
             <button
               className="btn secondary"
-              onClick={() => invoke("open_freellmapi_dashboard")}
+              onClick={() => {
+                invoke("open_freellmapi_dashboard").catch((e) => {
+                  console.warn("Rust open failed, trying fallback...", e);
+                  import("@tauri-apps/api/shell").then(({ open }) => {
+                    open("http://localhost:3001").catch((e2) => {
+                      console.warn("Tauri shell open failed, trying window.open...", e2);
+                      window.open("http://localhost:3001", "_blank");
+                    });
+                  });
+                });
+              }}
             >
               Open dashboard to add provider keys
             </button>

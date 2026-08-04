@@ -622,6 +622,9 @@ export default function SkillsTools() {
             <option value="ja">日本語 (JA)</option>
             <option value="hi">हिन्दी (HI)</option>
             <option value="pt-BR">Português (BR)</option>
+            <option value="chr">ᏣᎳᎩ (CHR)</option>
+            <option value="bg">Български (BG)</option>
+            <option value="tl">Tagalog (TL)</option>
           </select>
         </div>
 

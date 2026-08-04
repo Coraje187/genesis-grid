@@ -15,6 +15,7 @@ import SkillsTools from "./components/SkillsTools";
 import AgentsView from "./components/AgentsView";
 import KanbanBoard from "./components/KanbanBoard";
 import Notebook from "./components/Notebook";
+import FileExplorer from "./components/FileExplorer";
 import { SystemProfile } from "./lib/modelTiers";
 
 type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents" | "kanban" | "notebook";
@@ -41,6 +42,7 @@ export default function App() {
   const [appVersion, setAppVersion] = useState<string>("");
   const [updateAvailable, setUpdateAvailable] = useState<any>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [showFileExplorer, setShowFileExplorer] = useState(true);
 
   function refreshInstalledModels() {
     invoke<string[]>("list_installed_models").then(setInstalledModels).catch(() => setInstalledModels([]));
@@ -280,6 +282,12 @@ export default function App() {
           >
             {t("useOnlineInstead")}
           </button>
+          <button
+            className="nav-item"
+            onClick={() => setShowFileExplorer(!showFileExplorer)}
+          >
+            {showFileExplorer ? "Hide Explorer" : "Show Explorer"}
+          </button>
         </nav>
 
         <button
@@ -312,7 +320,28 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main-view">
+      <main className="main-view" style={{ position: "relative" }}>
+        {!showFileExplorer && (
+          <button 
+            onClick={() => setShowFileExplorer(true)}
+            className="sidebar-close-btn"
+            style={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              background: "var(--bg-sunken)",
+              border: "1px solid var(--border)",
+              padding: "6px",
+              zIndex: 100
+            }}
+            title="Open Explorer"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="15" y1="3" x2="15" y2="21"></line>
+            </svg>
+          </button>
+        )}
         {view === "agents" && <AgentsView installedModels={installedModels} />}
         {view === "kanban" && <KanbanBoard />}
         {view === "notebook" && <Notebook />}
@@ -344,6 +373,12 @@ export default function App() {
         {view === "library" && <ModelLibrary profile={profile} />}
         {view === "online" && <OnlineFallback />}
       </main>
+      
+      {showFileExplorer && (
+        <aside className="right-sidebar">
+          <FileExplorer onClose={() => setShowFileExplorer(false)} />
+        </aside>
+      )}
     </div>
   );
 }
