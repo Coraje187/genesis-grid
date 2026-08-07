@@ -72,6 +72,31 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    const applyCustomTheme = () => {
+      try {
+        const stored = localStorage.getItem("custom_theme");
+        const doc = document.documentElement;
+        if (stored) {
+          const colors = JSON.parse(stored);
+          if (colors.bg) doc.style.setProperty("--bg", colors.bg);
+          if (colors.bgRaised) doc.style.setProperty("--bg-raised", colors.bgRaised);
+          if (colors.ink) doc.style.setProperty("--ink", colors.ink);
+          if (colors.accent) doc.style.setProperty("--accent", colors.accent);
+        } else {
+          doc.style.removeProperty("--bg");
+          doc.style.removeProperty("--bg-raised");
+          doc.style.removeProperty("--ink");
+          doc.style.removeProperty("--accent");
+        }
+      } catch (e) {}
+    };
+    
+    applyCustomTheme();
+    window.addEventListener("theme-changed", applyCustomTheme);
+    return () => window.removeEventListener("theme-changed", applyCustomTheme);
+  }, []);
+
+  useEffect(() => {
     invoke<boolean>("ollama_installed").then(setOllamaReady).catch(() => setOllamaReady(false));
     invoke<SystemProfile>("scan_system").then(setProfile).catch(() => {});
     refreshInstalledModels();

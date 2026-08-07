@@ -98,6 +98,30 @@ export default function SkillsTools() {
   const [openaiKey, setOpenaiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
+  
+  // Theme Customizer
+  const [customTheme, setCustomTheme] = useState<{bg: string, bgRaised: string, ink: string, accent: string}>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem("custom_theme") || "null") || { bg: "", bgRaised: "", ink: "", accent: "" };
+    } catch {
+      return { bg: "", bgRaised: "", ink: "", accent: "" };
+    }
+  });
+  
+  const [selectedSection, setSelectedSection] = useState<"bg" | "bgRaised" | "ink" | "accent">("bg");
+
+  function handleThemeChange(value: string) {
+    const next = { ...customTheme, [selectedSection]: value };
+    setCustomTheme(next);
+    window.localStorage.setItem("custom_theme", JSON.stringify(next));
+    window.dispatchEvent(new Event("theme-changed"));
+  }
+
+  function clearCustomTheme() {
+    window.localStorage.removeItem("custom_theme");
+    setCustomTheme({ bg: "", bgRaised: "", ink: "", accent: "" });
+    window.dispatchEvent(new Event("theme-changed"));
+  }
   const [geminiModel, setGeminiModel] = useState("");
   const [customKey, setCustomKey] = useState("");
   const [customUrl, setCustomUrl] = useState("");
@@ -637,7 +661,7 @@ export default function SkillsTools() {
               className="btn" 
               onClick={handleInstallUpdate} 
               disabled={installingUpdate}
-              style={{ background: "var(--accent)", color: "#fff", padding: "4px 12px", fontSize: 13 }}
+              style={{ background: "var(--success)", color: "#000", padding: "8px 12px", fontSize: 13, whiteSpace: "nowrap", border: "none" }}
             >
               {installingUpdate ? "Installing..." : "Install Update & Restart"}
             </button>
@@ -646,7 +670,7 @@ export default function SkillsTools() {
               className="btn" 
               onClick={handleCheckUpdate} 
               disabled={checkingUpdate}
-              style={{ padding: "4px 12px", fontSize: 13 }}
+              style={{ padding: "8px 12px", fontSize: 13, whiteSpace: "nowrap", background: "transparent", border: "1px solid var(--border)", color: "var(--accent)", fontWeight: "bold" }}
             >
               {checkingUpdate ? "Checking..." : "Check for Updates"}
             </button>
@@ -659,6 +683,35 @@ export default function SkillsTools() {
         {/* Left column: Tools, Skills, and Telegram listing */}
         <div style={{ flex: "1 1 500px", display: "flex", flexDirection: "column", gap: 20 }}>
           
+          {/* Theme Customizer Card */}
+          <div className="card" style={{ padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+              <h2 style={{ fontSize: 16, color: "var(--accent)" }}>🎨 Customize Theme Colors</h2>
+              <button className="btn" onClick={clearCustomTheme} style={{ fontSize: 12, padding: "4px 8px", background: "transparent", border: "1px solid var(--border)", color: "var(--ink-soft)" }}>Clear Custom Colors</button>
+            </div>
+            
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <select 
+                value={selectedSection} 
+                onChange={(e) => setSelectedSection(e.target.value as any)}
+                style={{ flex: 1, padding: "8px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--bg)", color: "var(--ink)", outline: "none", fontSize: 14 }}
+              >
+                <option value="bg">Background Base</option>
+                <option value="bgRaised">Background Raised (Sidebar / Cards)</option>
+                <option value="ink">Primary Text</option>
+                <option value="accent">Accent Color</option>
+              </select>
+
+              <input 
+                type="color" 
+                value={customTheme[selectedSection] || "#ffffff"} 
+                onChange={(e) => handleThemeChange(e.target.value)} 
+                style={{ width: "40px", height: "40px", padding: 0, border: "none", cursor: "pointer", background: "transparent", borderRadius: "4px" }} 
+                title="Pick a color"
+              />
+            </div>
+          </div>
+
           {/* System Tools Card */}
           <div className="card" style={{ padding: 20 }}>
             <h2 style={{ fontSize: 16, color: "var(--settings-tools)", marginBottom: 12, borderBottom: "1px solid var(--border)", paddingBottom: 6 }}>
