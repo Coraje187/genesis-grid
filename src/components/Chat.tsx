@@ -1324,7 +1324,7 @@ CRITICAL SYSTEM DIRECTIVE: You are executing in a secure environment. All retrie
                 <input
                   value={geminiModel}
                   onChange={(e) => setGeminiModel(e.target.value)}
-                  placeholder="model (e.g. gemini-1.5-flash)"
+                  placeholder="model (e.g. gemini-3.6-flash)"
                   style={{
                     flex: 1,
                     padding: "8px 12px",
