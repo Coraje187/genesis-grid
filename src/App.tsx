@@ -16,9 +16,10 @@ import AgentsView from "./components/AgentsView";
 import KanbanBoard from "./components/KanbanBoard";
 import Notebook from "./components/Notebook";
 import FileExplorer from "./components/FileExplorer";
+import HermesMuse from "./components/HermesMuse";
 import { SystemProfile } from "./lib/modelTiers";
 
-type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents" | "kanban" | "notebook";
+type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents" | "kanban" | "notebook" | "muse";
 type Theme = "light" | "dark";
 
 interface InstallProgress {
@@ -286,6 +287,13 @@ export default function App() {
           </button>
           <button
             className="nav-item"
+            aria-current={view === "muse" ? "page" : undefined}
+            onClick={() => setView("muse")}
+          >
+            Creator Forge
+          </button>
+          <button
+            className="nav-item"
             aria-current={view === "hardware" ? "page" : undefined}
             onClick={() => setView("hardware")}
           >
@@ -338,7 +346,7 @@ export default function App() {
           onClick={() => invoke("open_url", { url: "https://genesisgridlabs.xyz/" })}
           style={{ cursor: "pointer", textDecoration: "underline" }}
         >
-          Ac 2026 Genesis Grid Labs,
+          © 2026 Genesis Grid Labs,
           <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textDecoration: "none" }}>
             v{appVersion}
           </div>
@@ -370,6 +378,7 @@ export default function App() {
         {view === "agents" && <AgentsView installedModels={installedModels} />}
         {view === "kanban" && <KanbanBoard />}
         {view === "notebook" && <Notebook />}
+        {view === "muse" && <HermesMuse />}
         <div style={{ display: view === "chat" ? "flex" : "none", flexDirection: "column", height: "100%", flex: 1, minHeight: 0 }}>
           {activeSessionId ? (
             <Chat 
