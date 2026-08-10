@@ -809,7 +809,7 @@ ${examplesText}
 When you output a tool call, stop outputting immediately. The system will execute the command (after user permission), and send the results back as a system/user message. Then you can finish your response to the user.${skillsText}
 
 Your Memory Core (Persistent Wiki):
-${sanitizeRetrievedContext(wikiContent.replace(/<\/?memory_core_document>/g, ""))}
+${sanitizeRetrievedContext((wikiContent || "").replace(/<\/?memory_core_document>/g, ""))}
 
 ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
       };
