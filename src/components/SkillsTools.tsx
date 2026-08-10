@@ -120,8 +120,24 @@ export default function SkillsTools() {
   function clearCustomTheme() {
     window.localStorage.removeItem("custom_theme");
     setCustomTheme({ bg: "", bgRaised: "", ink: "", accent: "" });
+    setCustomTheme({ bg: "", bgRaised: "", ink: "", accent: "" });
     window.dispatchEvent(new Event("theme-changed"));
   }
+  
+  // Dual AI Security
+  const [dualAIEnabled, setDualAIEnabled] = useState(window.localStorage.getItem("genesis_dual_ai_enabled") === "true");
+  const [dualAIProvider, setDualAIProvider] = useState(window.localStorage.getItem("genesis_dual_ai_provider") || "gemini");
+
+  function handleDualAIToggle(enabled: boolean) {
+    setDualAIEnabled(enabled);
+    window.localStorage.setItem("genesis_dual_ai_enabled", enabled ? "true" : "false");
+  }
+
+  function handleDualAIProviderChange(provider: string) {
+    setDualAIProvider(provider);
+    window.localStorage.setItem("genesis_dual_ai_provider", provider);
+  }
+
   const [geminiModel, setGeminiModel] = useState("");
   const [customKey, setCustomKey] = useState("");
   const [customUrl, setCustomUrl] = useState("");
@@ -710,6 +726,42 @@ export default function SkillsTools() {
                 title="Pick a color"
               />
             </div>
+          </div>
+
+          {/* Dual AI Security Overseer Card */}
+          <div className="card" style={{ padding: 20 }}>
+            <h2 style={{ fontSize: 16, color: "var(--accent)", marginBottom: 12, borderBottom: "1px solid var(--border)", paddingBottom: 6 }}>
+              🛡️ Dual-AI Security Overseer
+            </h2>
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 16, lineHeight: 1.5 }}>
+              Enable a secondary lightweight AI to act as a security guard. It will silently intercept and review all destructive commands (like modifying files or running terminal scripts) to prevent accidental damage or prompt injection.
+            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <input 
+                type="checkbox" 
+                id="dualAIToggle"
+                checked={dualAIEnabled} 
+                onChange={(e) => handleDualAIToggle(e.target.checked)} 
+                style={{ cursor: "pointer", width: 16, height: 16 }}
+              />
+              <label htmlFor="dualAIToggle" style={{ fontSize: 14, color: "var(--ink)", cursor: "pointer" }}>
+                Enable Overseer Interception
+              </label>
+            </div>
+            {dualAIEnabled && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>Overseer Provider:</span>
+                <select 
+                  value={dualAIProvider} 
+                  onChange={(e) => handleDualAIProviderChange(e.target.value)}
+                  style={{ flex: 1, padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--bg)", color: "var(--ink)", outline: "none", fontSize: 13 }}
+                >
+                  <option value="gemini">Gemini (Recommended - Fast)</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </div>
+            )}
           </div>
 
           {/* System Tools Card */}

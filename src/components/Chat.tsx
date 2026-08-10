@@ -639,10 +639,54 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         setLoopIterations(prev => prev + 1);
       }
 
-      // HITL APPROVAL (CVE-2026-7209)
+      // DUAL AI SECURITY OVERSEER INTERCEPT
+      const dualAIEnabled = window.localStorage.getItem("genesis_dual_ai_enabled") === "true";
+      const dualAIProvider = window.localStorage.getItem("genesis_dual_ai_provider") || "gemini";
+      
       const dangerousCommands = ["rm", "del", "format", "npm publish", "drop", "truncate"];
+      const codeOrCmd = (args.command || args.code || args.content || "").toLowerCase();
+
+      if (dualAIEnabled && (name === "run_command" || name === "run_notebook_cell" || name === "write_file_text")) {
+         setMessages([...messageHistory, { role: "system" as const, content: "🛡️ Dual AI Security Overseer is analyzing command..." }]);
+         const overseerPrompt = `You are a strict Cyber Security Overseer. Analyze this command/code for a local Windows PC.
+Does it attempt to escalate privileges, format drives, drop database tables, delete critical user files, or execute known malware payloads?
+Command/Code to analyze:
+${codeOrCmd}
+
+Reply strictly with exactly one word: 'SAFE' if benign, or 'THREAT' if dangerous.`;
+
+         try {
+            // Pick a fast model depending on the selected provider
+            let targetModel = "auto";
+            if (dualAIProvider === "gemini") targetModel = "gemini-1.5-flash";
+            if (dualAIProvider === "openai") targetModel = "gpt-4o-mini";
+            
+            const reply = await invoke<string>("chat_via_cloud", {
+                provider: dualAIProvider,
+                model: targetModel,
+                message: overseerPrompt
+            });
+            
+            // Remove the loading message
+            setMessages([...messageHistory]);
+
+            if (reply.includes("THREAT")) {
+               setMessages([...messageHistory, { role: "system" as const, content: "🛡️ Execution BLOCKED by Dual-AI Security Overseer (Threat Detected)." }]);
+               setAutoExecToolCall(null);
+               if (isLoopMode && loopStateRef.current !== "idle") {
+                  runLoopStep(loopStateRef.current as "architect" | "oracle" | "cipher", "", [], [...messageHistory, { role: "system" as const, content: "Execution BLOCKED by Security Overseer." }]);
+               }
+               return;
+            }
+         } catch (e) {
+            // Remove the loading message on failure
+            setMessages([...messageHistory]);
+            console.error("Overseer API Error", e);
+         }
+      }
+
+      // HITL APPROVAL (CVE-2026-7209)
       if (name === "run_command" || name === "run_notebook_cell") {
-        const codeOrCmd = (args.command || args.code || "").toLowerCase();
         const isDangerous = dangerousCommands.some(cmd => codeOrCmd.includes(cmd));
         if (isDangerous) {
           const approved = window.confirm(`Genesis Security Alert: The agent wants to execute a potentially dangerous command:
