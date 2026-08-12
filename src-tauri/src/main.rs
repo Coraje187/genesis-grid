@@ -2388,6 +2388,72 @@ async fn chat_send_sync(model: String, message: String) -> Result<String, String
     Ok(reply)
 }
 
+#[tauri::command]
+async fn run_browser_task(
+    window: tauri::Window,
+    task: String,
+    provider: String,
+    model: String,
+) -> Result<(), String> {
+    use std::io::{BufRead, BufReader, Write};
+    
+    let settings = load_freellmapi_settings();
+    let api_key = match provider.as_str() {
+        "openrouter" => settings.openrouter_key.clone().or(settings.direct_api_key.clone()).unwrap_or_default(),
+        "openai" => settings.openai_key.clone().unwrap_or_default(),
+        "gemini" => settings.gemini_key.clone().unwrap_or_default(),
+        "custom" => settings.custom_key.clone().unwrap_or_default(),
+        _ => "".to_string()
+    };
+    
+    if api_key.trim().is_empty() {
+        return Err(format!("API key for {} is missing.", provider));
+    }
+    
+    let python_exe = if cfg!(target_os = "windows") { "python" } else { "python3" };
+    let sidecar_path = std::env::current_dir()
+        .unwrap_or_default()
+        .join("browser_use_sidecar.py");
+        
+    let mut child = std::process::Command::new(python_exe)
+        .arg(&sidecar_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn Python sidecar: {}", e))?;
+        
+    let mut stdin = child.stdin.take().expect("Failed to open stdin");
+    let stdout = child.stdout.take().expect("Failed to open stdout");
+    
+    let req = serde_json::json!({
+        "command": "run_browser_task",
+        "task": task,
+        "provider": provider,
+        "model": model,
+        "api_key": api_key,
+    });
+    
+    let req_str = req.to_string() + "\n";
+    stdin.write_all(req_str.as_bytes()).map_err(|e| e.to_string())?;
+    
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if let Ok(line_str) = line {
+                if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&line_str) {
+                    let _ = window.emit("browser-task-update", json_val);
+                } else {
+                    let _ = window.emit("browser-task-log", line_str);
+                }
+            }
+        }
+        let _ = child.wait();
+        let _ = window.emit("browser-task-exit", ());
+    });
+    
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(ChatController {
@@ -2464,7 +2530,8 @@ fn main() {
             telegram_bot_status,
             scan_vault,
             read_vault_file,
-            write_vault_file
+            write_vault_file,
+            run_browser_task
         ])
         .run(tauri::generate_context!())
         .expect("error while running Genesis Grid");
