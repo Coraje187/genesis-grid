@@ -17,7 +17,7 @@ import KanbanBoard from "./components/KanbanBoard";
 import Notebook from "./components/Notebook";
 import FileExplorer from "./components/FileExplorer";
 import HermesMuse from "./components/HermesMuse";
-import BrowserUseMode from "./components/BrowserUseMode";
+// import BrowserUseMode from "./components/BrowserUseMode";
 import { SystemProfile } from "./lib/modelTiers";
 
 type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents" | "kanban" | "notebook" | "muse" | "browser";
@@ -279,13 +279,13 @@ export default function App() {
           >
             Open Notebook
           </button>
-          <button
+          {/* <button
             className="nav-item"
             aria-current={view === "browser" ? "page" : undefined}
             onClick={() => setView("browser")}
           >
             Web Agent
-          </button>
+          </button> */}
           <button
             className="nav-item"
             aria-current={view === "memory" ? "page" : undefined}
@@ -386,7 +386,7 @@ export default function App() {
         {view === "agents" && <AgentsView installedModels={installedModels} />}
         {view === "kanban" && <KanbanBoard />}
         {view === "notebook" && <Notebook />}
-        {view === "browser" && <BrowserUseMode />}
+        {/* view === "browser" && <BrowserUseMode /> */}
         {view === "muse" && <HermesMuse />}
         <div style={{ display: view === "chat" ? "flex" : "none", flexDirection: "column", height: "100%", flex: 1, minHeight: 0 }}>
           {activeSessionId ? (

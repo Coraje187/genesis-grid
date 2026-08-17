@@ -345,6 +345,22 @@ async fn install_ollama(window: tauri::Window) -> Result<String, String> {
     }
 }
 
+/// Helper to find the ollama executable.
+/// On macOS, GUI apps don't inherit the terminal PATH, so we check common homebrew/local paths.
+fn get_ollama_command() -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut binary_path = "ollama".to_string();
+    #[cfg(target_os = "macos")]
+    {
+        if std::path::Path::new("/opt/homebrew/bin/ollama").exists() {
+            binary_path = "/opt/homebrew/bin/ollama".to_string();
+        } else if std::path::Path::new("/usr/local/bin/ollama").exists() {
+            binary_path = "/usr/local/bin/ollama".to_string();
+        }
+    }
+    std::process::Command::new(binary_path)
+}
+
 /// `ollama_installed` only checks the executable exists — it doesn't check
 /// whether the background server is actually up and listening. Someone can
 /// quit Ollama from their tray icon and Genesis Grid would otherwise still
@@ -360,7 +376,7 @@ fn ollama_server_running() -> bool {
 
 #[tauri::command]
 fn start_ollama_server() -> Result<String, String> {
-    Command::new("ollama")
+    get_ollama_command()
         .arg("serve")
         .spawn()
         .map(|_| "Starting Ollama…".to_string())
@@ -2343,12 +2359,12 @@ fn write_vault_file(path: String, content: String) -> Result<(), String> {
 
 #[tauri::command]
 fn ollama_installed() -> bool {
-    Command::new("ollama").arg("--version").output().is_ok()
+    get_ollama_command().arg("--version").output().is_ok()
 }
 
 #[tauri::command]
 fn list_installed_models() -> Result<Vec<String>, String> {
-    let output = Command::new("ollama")
+    let output = get_ollama_command()
         .arg("list")
         .output()
         .map_err(|e| format!("Couldn't reach Ollama: {e}"))?;
@@ -2367,7 +2383,7 @@ fn list_installed_models() -> Result<Vec<String>, String> {
 /// this starts the pull and reports whether the process launched.
 #[tauri::command]
 fn pull_model(model_id: String) -> Result<String, String> {
-    Command::new("ollama")
+    get_ollama_command()
         .arg("pull")
         .arg(&model_id)
         .spawn()
