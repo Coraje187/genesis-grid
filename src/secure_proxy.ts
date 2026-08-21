@@ -12,7 +12,7 @@ app.post('/api/generate', async (req: Request, res: Response) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': Bearer ${process.env.OPENAI_API_KEY} // Key never leaves backend
+        'Authorization': Bearer {process.env.OPENAI_API_KEY} // Key never leaves backend
       },
       body: JSON.stringify(req.body)
     });

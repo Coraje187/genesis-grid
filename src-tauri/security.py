@@ -31,7 +31,7 @@ def build_fenced_rag_context(documents: List[str]) -> str:
     fenced_docs = []
     for i, doc in enumerate(documents):
         clean_doc = sanitize_raw_text(doc)
-        fenced_docs.append(f"<document index="{i}">\n{clean_doc}\n</document>")
+        fenced_docs.append(f"<document index='{i}'>\n{clean_doc}\n</document>")
     return "\n\n".join(fenced_docs)
 
 def get_secure_system_prompt() -> str:
