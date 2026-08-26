@@ -2470,6 +2470,153 @@ async fn run_browser_task(
     Ok(())
 }
 
+#[tauri::command]
+fn git_create_branch(branch_name: String) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["checkout", "-b", &branch_name])
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    if output.status.success() {
+        Ok(format!("Successfully created and switched to branch '{}'", branch_name))
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+fn git_commit(message: String) -> Result<String, String> {
+    Command::new("git")
+        .args(["add", "."])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let output = Command::new("git")
+        .args(["commit", "-m", &message])
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    if output.status.success() {
+        Ok(format!("Successfully committed changes: {}", message))
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+fn run_tests_in_sandbox(command: String) -> Result<String, String> {
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let dir_str = current_dir.to_string_lossy().to_string();
+
+    let output = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "--network", "none", // Air-gapped network for safety
+            "-v",
+            &format!("{}:/workspace", dir_str),
+            "-w", "/workspace",
+            "node:18-alpine",
+            "sh", "-c", &command
+        ])
+        .output()
+        .map_err(|e| format!("Failed to spawn Docker sandbox. Is Docker running? Error: {}", e))?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() {
+        Ok(format!("Tests passed successfully in sandbox.\nSTDOUT:\n{}", stdout))
+    } else {
+        Err(format!("Tests failed in sandbox.\nSTDOUT:\n{}\nSTDERR:\n{}", stdout, stderr))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct OmniEntry {
+    text: String,
+    embedding: Vec<f64>,
+}
+
+fn get_omni_index_path() -> std::path::PathBuf {
+    let mut p = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    p.push("genesis-grid");
+    std::fs::create_dir_all(&p).unwrap_or(());
+    p.push("omni_index.json");
+    p
+}
+
+async fn fetch_embedding(text: &str) -> Result<Vec<f64>, String> {
+    let client = reqwest::Client::new();
+    let res = client.post("http://127.0.0.1:11434/api/embeddings")
+        .json(&serde_json::json!({
+            "model": "nomic-embed-text",
+            "prompt": text
+        }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let embedding = json["embedding"].as_array()
+        .ok_or("No embedding array found from Ollama")?
+        .iter()
+        .map(|v| v.as_f64().unwrap_or(0.0))
+        .collect();
+    Ok(embedding)
+}
+
+#[tauri::command]
+async fn index_omni_text(text: String) -> Result<String, String> {
+    let embedding = fetch_embedding(&text).await?;
+    
+    let path = get_omni_index_path();
+    let mut entries: Vec<OmniEntry> = if path.exists() {
+        let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "[]".to_string());
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    entries.push(OmniEntry { text, embedding });
+    std::fs::write(path, serde_json::to_string(&entries).unwrap()).map_err(|e| e.to_string())?;
+    Ok("Indexed successfully".to_string())
+}
+
+#[tauri::command]
+async fn query_omni_index(query: String) -> Result<Vec<String>, String> {
+    let query_embedding = fetch_embedding(&query).await?;
+    
+    let path = get_omni_index_path();
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let entries: Vec<OmniEntry> = serde_json::from_str(&content).unwrap_or_default();
+    
+    let mut scored: Vec<(f64, String)> = entries.into_iter().map(|entry| {
+        let mut dot = 0.0;
+        let mut norm_a = 0.0;
+        let mut norm_b = 0.0;
+        for (a, b) in query_embedding.iter().zip(entry.embedding.iter()) {
+            dot += a * b;
+            norm_a += a * a;
+            norm_b += b * b;
+        }
+        let sim = if norm_a > 0.0 && norm_b > 0.0 {
+            dot / (norm_a.sqrt() * norm_b.sqrt())
+        } else {
+            0.0
+        };
+        (sim, entry.text)
+    }).collect();
+    
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let top: Vec<String> = scored.into_iter().take(3).map(|(_, text)| text).collect();
+    Ok(top)
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(ChatController {
@@ -2547,7 +2694,12 @@ fn main() {
             scan_vault,
             read_vault_file,
             write_vault_file,
-            run_browser_task
+            run_browser_task,
+            git_create_branch,
+            git_commit,
+            run_tests_in_sandbox,
+            index_omni_text,
+            query_omni_index
         ])
         .run(tauri::generate_context!())
         .expect("error while running Genesis Grid");

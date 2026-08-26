@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { open as openShell } from "@tauri-apps/api/shell";
 import { sanitizeRetrievedContext, DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL } from "../lib/sanitizer";
+import { z } from "zod";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -83,6 +84,18 @@ export default function Chat({
   const [loopState, setLoopState] = useState<"idle" | "architect" | "oracle" | "cipher">("idle");
   const loopStateRef = useRef(loopState);
   useEffect(() => { loopStateRef.current = loopState; }, [loopState]);
+  
+  const [isWarRoomMode, setIsWarRoomMode] = useState(false);
+  const [warRoomIterations, setWarRoomIterations] = useState(0);
+  const [warRoomState, setWarRoomState] = useState<"idle" | "coder" | "critic">("idle");
+  const warRoomStateRef = useRef(warRoomState);
+  useEffect(() => { warRoomStateRef.current = warRoomState; }, [warRoomState]);
+  
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const isVoiceModeRef = useRef(isVoiceMode);
+  useEffect(() => { isVoiceModeRef.current = isVoiceMode; }, [isVoiceMode]);
+  const speechRecRef = useRef<any>(null);
+  
   const [loopAgents, setLoopAgents] = useState<any[]>([]);
 
   // Load agents for Loop Mode
@@ -121,6 +134,57 @@ export default function Chat({
       window.removeEventListener("storage", refreshSkillsAndTools);
     };
   }, []);
+
+  useEffect(() => {
+    if (isVoiceMode) {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Your browser does not support SpeechRecognition.");
+        setIsVoiceMode(false);
+        return;
+      }
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[event.results.length - 1][0].transcript;
+        if (transcript.trim()) {
+          window.speechSynthesis.cancel();
+          // Auto-send when voice is heard
+          setDraft(transcript);
+          setTimeout(() => {
+            const sendBtn = document.getElementById('chat-send-btn');
+            if (sendBtn) sendBtn.click();
+          }, 100);
+        }
+      };
+
+      recognition.onend = () => {
+        if (isVoiceModeRef.current) {
+          recognition.start(); // Auto-restart listening
+        }
+      };
+
+      recognition.start();
+      speechRecRef.current = recognition;
+    } else {
+      if (speechRecRef.current) {
+        speechRecRef.current.stop();
+        speechRecRef.current = null;
+      }
+      window.speechSynthesis.cancel();
+    }
+    
+    return () => {
+      if (speechRecRef.current) {
+        speechRecRef.current.onend = null;
+        speechRecRef.current.stop();
+      }
+      window.speechSynthesis.cancel();
+    };
+  }, [isVoiceMode]);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -609,8 +673,28 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
             setLoopState("idle");
             setSending(false);
           }
+        } else if (isWarRoomMode) {
+          const currentStep = warRoomStateRef.current;
+          const isApproved = lastAssistant?.content.includes("APPROVE");
+          
+          if (warRoomIterations >= 3 || isApproved) {
+             setWarRoomState("idle");
+             setSending(false);
+          } else {
+             if (currentStep === "coder") {
+               setTimeout(() => runWarRoomStep("critic", "", [], prev), 500);
+             } else if (currentStep === "critic") {
+               setWarRoomIterations(i => i + 1);
+               setTimeout(() => runWarRoomStep("coder", "", [], prev), 500);
+             }
+          }
         } else {
           setSending(false);
+          if (isVoiceModeRef.current && lastAssistant && lastAssistant.content.trim()) {
+            // Read response aloud using OS-level TTS
+            const utterance = new SpeechSynthesisUtterance(lastAssistant.content);
+            window.speechSynthesis.speak(utterance);
+          }
         }
         
         return prev;
@@ -707,13 +791,18 @@ Do you want to allow this?`);
 
       let output = "";
       try {
+        // Enforce strict JSON Schema parameter validation (CVE-2026-7595)
         if (name === "search_web") {
+          z.object({ query: z.string().optional() }).parse(args);
           output = await invoke("search_web", { query: args.query || "" });
         } else if (name === "search_codebase") {
+          z.object({ directory_path: z.string().optional(), regex_pattern: z.string().optional() }).parse(args);
           output = await invoke("search_codebase", { directoryPath: args.directory_path || "", regexPattern: args.regex_pattern || "" });
         } else if (name === "run_notebook_cell") {
+          z.object({ language: z.string().optional(), code: z.string().optional() }).parse(args);
           output = await invoke("run_code_sandbox", { language: args.language || "python", code: args.code || "" });
         } else if (name === "create_kanban_card") {
+          z.object({ column: z.string(), title: z.string().optional(), description: z.string().optional() }).parse(args);
           const json = await invoke<string>("load_kanban_config");
           const boards = JSON.parse(json);
           if (boards.length > 0) {
@@ -730,6 +819,7 @@ Do you want to allow this?`);
             output = "No boards found.";
           }
         } else if (name === "update_kanban_card") {
+          z.object({ card_id: z.string(), new_column: z.string() }).parse(args);
           const json = await invoke<string>("load_kanban_config");
           const boards = JSON.parse(json);
           if (boards.length > 0) {
@@ -758,7 +848,11 @@ Do you want to allow this?`);
           }
         }
       } catch (e) {
-         output = `Error executing tool: ${e}`;
+         if (e instanceof z.ZodError) {
+           output = `SecurityViolationError: Untrusted tool output (parameter poisoning detected)\n${e.message}`;
+         } else {
+           output = `Error executing tool: ${e}`;
+         }
       }
 
       const newMessages = [...messageHistory, { role: "system" as const, content: `Tool Execution Result:\n${output}` }];
@@ -794,7 +888,12 @@ Do you want to allow this?`);
         query_local_csv_log: 'query_local_csv_log { "file_path": "absolute_path_to_csv_file", "query_column": "column_name", "query_value": "search_value", "row_limit": 100 } -> Queries rows in a CSV log file.',
         compress_codebase: 'compress_codebase { "directory_path": "absolute_path_to_codebase" } -> Recursively scans a codebase and generates a token-saving compressed structural summary.',
         search_web: 'search_web { "query": "search_term" } -> Searches the web using DuckDuckGo and returns snippet results.',
-        search_codebase: 'search_codebase { "directory_path": "absolute_path", "regex_pattern": "pattern" } -> Recursively searches files for a regex pattern.'
+        search_codebase: 'search_codebase { "directory_path": "absolute_path", "regex_pattern": "pattern" } -> Recursively searches files for a regex pattern.',
+        git_create_branch: 'git_create_branch { "branch_name": "fix-bug" } -> Creates and checks out a new Git branch.',
+        run_tests_in_sandbox: 'run_tests_in_sandbox { "command": "npm test" } -> Spawns an ephemeral Docker container, mounts the workspace, runs the test command safely, and returns logs.',
+        git_commit: 'git_commit { "message": "commit message" } -> Stages all changes and commits them locally. (Never pushes to origin).',
+        query_omni_index: 'query_omni_index { "query": "search term" } -> Performs semantic Local RAG search over the user\'s local knowledge base.',
+        run_browser_task: 'run_browser_task { "task": "url_or_search_term" } -> Spawns a headless Playwright Chromium browser to visually scrape JS-heavy websites.'
       };
  
       const toolExamples: Record<string, string> = {
@@ -988,11 +1087,47 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
 
     if (isLoopMode) {
       runLoopStep("architect", fullContent, attachedFiles, []);
+    } else if (isWarRoomMode) {
+      runWarRoomStep("coder", fullContent, attachedFiles, []);
     } else {
       const withUser = [...messages, userMsg, { role: "assistant" as const, content: "" }];
       setMessages(withUser);
       runInference(withUser, userMsg);
     }
+  }
+
+  function runWarRoomStep(step: "coder" | "critic", userText: string, files: any[], currentHistory: ChatMessage[]) {
+    const cipher = loopAgents.find(a => a.id === "cipher") || { name: "Cipher (Blue Team)", role: "Coder", model: "genesis" };
+    const architect = loopAgents.find(a => a.id === "architect") || { name: "Architect (Red Team Critic)", role: "Planner", model: "genesis" };
+
+    const getModelStr = (agentModel: string) => agentModel === "genesis" ? agentBrain : agentModel;
+
+    let targetAgent;
+    let overrideSystemText = "";
+    
+    if (step === "coder") {
+      targetAgent = cipher;
+      const criticOutput = currentHistory.length > 0 ? currentHistory[currentHistory.length - 1].content : "";
+      overrideSystemText = `[System: ${cipher.role} - BLUE TEAM]\n\nYou are the Blue Team Coder. Provide a solution.\n${criticOutput ? "The Critic said: " + criticOutput + "\nPlease revise your solution." : ""}`;
+    } else {
+      targetAgent = architect;
+      const coderOutput = currentHistory[currentHistory.length - 1].content;
+      overrideSystemText = `[System: ${architect.role} - RED TEAM]\n\nYou are the Red Team Critic. Review the Coder's solution for security flaws or bugs. If it is perfect, explicitly say 'APPROVE'. Otherwise, critique it.\nCoder's Solution:\n${coderOutput}`;
+    }
+
+    const sysMsg: ChatMessage = { role: "system", content: overrideSystemText };
+    const userMsg: ChatMessage = { role: "user", content: step === "coder" && currentHistory.length === 0 ? userText : "(War Room Debate Handoff)" };
+
+    const newHistory = [
+      ...(currentHistory.length === 0 ? messages : currentHistory),
+      userMsg,
+      { role: "assistant" as const, content: `**[WAR ROOM] ${targetAgent.name}:**\n\n` }
+    ];
+
+    setMessages(newHistory);
+    setWarRoomState(step);
+    setSending(true);
+    runInference(newHistory, userMsg, getModelStr(targetAgent.model), sysMsg);
   }
 
   function runLoopStep(step: "architect" | "oracle" | "cipher", userText: string, files: any[], currentHistory: ChatMessage[]) {
@@ -1071,7 +1206,10 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
           </button>
           <button 
             className="btn" 
-            onClick={() => { setIsLoopMode(!isLoopMode); if (!isLoopMode) setLoopIterations(0); }}
+            onClick={() => { 
+              setIsLoopMode(!isLoopMode); 
+              if (!isLoopMode) { setLoopIterations(0); setIsWarRoomMode(false); } 
+            }}
             style={{ 
               fontSize: 13, 
               padding: "8px 16px", 
@@ -1085,6 +1223,43 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
             }}
           >
             {isLoopMode ? "♺ LOOP MODE: ON" : "♺ LOOP MODE: OFF"}
+          </button>
+          <button 
+            className="btn" 
+            onClick={() => { 
+              setIsWarRoomMode(!isWarRoomMode); 
+              if (!isWarRoomMode) { setWarRoomIterations(0); setIsLoopMode(false); } 
+            }}
+            style={{ 
+              fontSize: 13, 
+              padding: "8px 16px", 
+              whiteSpace: "nowrap",
+              background: isWarRoomMode ? "#ff2ec8" : "transparent",
+              color: isWarRoomMode ? "#000" : "#ff2ec8",
+              border: "1px solid #ff2ec8",
+              fontWeight: "bold",
+              boxShadow: isWarRoomMode ? "0 0 10px rgba(255, 46, 200, 0.4)" : "none",
+              transition: "all 0.2s ease"
+            }}
+          >
+            {isWarRoomMode ? "⚔️ WAR ROOM: ON" : "⚔️ WAR ROOM: OFF"}
+          </button>
+          <button 
+            className="btn" 
+            onClick={() => setIsVoiceMode(!isVoiceMode)}
+            style={{ 
+              fontSize: 13, 
+              padding: "8px 16px", 
+              whiteSpace: "nowrap",
+              background: isVoiceMode ? "#00ff88" : "transparent",
+              color: isVoiceMode ? "#000" : "#00ff88",
+              border: "1px solid #00ff88",
+              fontWeight: "bold",
+              boxShadow: isVoiceMode ? "0 0 10px rgba(0, 255, 136, 0.4)" : "none",
+              transition: "all 0.2s ease"
+            }}
+          >
+            {isVoiceMode ? "🎙️ VOICE: ON" : "🎙️ VOICE: OFF"}
           </button>
           {model === "genesis" ? (
             <div 
@@ -1606,7 +1781,7 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
             Stop
           </button>
         ) : (
-          <button className="btn" onClick={handleSend} disabled={!model}>
+          <button id="chat-send-btn" className="btn" onClick={handleSend} disabled={!model}>
             Send
           </button>
         )}
