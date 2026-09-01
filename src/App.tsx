@@ -17,7 +17,7 @@ import KanbanBoard from "./components/KanbanBoard";
 import Notebook from "./components/Notebook";
 import FileExplorer from "./components/FileExplorer";
 import HermesMuse from "./components/HermesMuse";
-// import BrowserUseMode from "./components/BrowserUseMode";
+import BrowserUseMode from "./components/BrowserUseMode";
 import { SystemProfile } from "./lib/modelTiers";
 
 type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents" | "kanban" | "notebook" | "muse" | "browser";
@@ -164,7 +164,35 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="wordmark">Genesis Grid</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="wordmark" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="status-dot" title="Core Online"></div>
+            Genesis Grid
+          </div>
+        </div>
+
+        <button 
+          className="nav-item" 
+          style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            background: 'var(--bg-sunken)',
+            border: '1px solid var(--border)',
+            padding: '8px 12px',
+            marginTop: '-10px'
+          }}
+        >
+          <span style={{ color: 'var(--ink-soft)' }}>Search...</span>
+          <kbd style={{ 
+            fontFamily: 'var(--font-mono)', 
+            fontSize: '10px', 
+            background: 'var(--bg-raised)', 
+            padding: '2px 6px', 
+            borderRadius: '4px',
+            border: '1px solid var(--border)'
+          }}>⌘K</kbd>
+        </button>
 
         {updateAvailable && (
           <div className="card" style={{ padding: 12, fontSize: 12, background: "var(--accent)", color: "#fff", border: "none" }}>
@@ -279,13 +307,13 @@ export default function App() {
           >
             Open Notebook
           </button>
-          {/* <button
+          <button
             className="nav-item"
             aria-current={view === "browser" ? "page" : undefined}
             onClick={() => setView("browser")}
           >
             Web Agent
-          </button> */}
+          </button>
           <button
             className="nav-item"
             aria-current={view === "memory" ? "page" : undefined}
@@ -386,7 +414,7 @@ export default function App() {
         {view === "agents" && <AgentsView installedModels={installedModels} />}
         {view === "kanban" && <KanbanBoard />}
         {view === "notebook" && <Notebook />}
-        {/* view === "browser" && <BrowserUseMode /> */}
+        {view === "browser" && <BrowserUseMode />}
         {view === "muse" && <HermesMuse />}
         <div style={{ display: view === "chat" ? "flex" : "none", flexDirection: "column", height: "100%", flex: 1, minHeight: 0 }}>
           {activeSessionId ? (

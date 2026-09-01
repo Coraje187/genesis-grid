@@ -3,49 +3,65 @@
    and neon-magenta signage, ultraviolet haze. */
 
 :root[data-theme="dark"] {
-  --bg: #05060d;
-  --bg-raised: #0c0e1c;
-  --bg-sunken: #020308;
-  --ink: #eaf6ff;
-  --ink-soft: #93a3c2;
-  --border: #1b2340;
-  --accent: #2be9ff;      /* circuit cyan */
-  --accent-2: #ff2ec8;    /* neon magenta */
-  --accent-3: #9b3ffb;    /* ultraviolet */
-  --accent-ink: #04121a;
-  --success: #38f0b0;
-  --warn: #ffb23f;
-  --grid-line: rgba(43, 233, 255, 0.08);
+  --bg: #090a0f;
+  --bg-raised: rgba(18, 20, 28, 0.65);
+  --bg-sunken: #050609;
+  --ink: #f2f5f9;
+  --ink-soft: #8a96aa;
+  --border: rgba(255, 255, 255, 0.08);
+  --accent: #00e5ff;      /* sleek cyan */
+  --accent-2: #f400a1;    /* elegant magenta */
+  --accent-3: #7b1fa2;    /* deep violet */
+  --accent-ink: #000000;
+  --success: #00e676;
+  --warn: #ffab00;
+  --grid-line: rgba(255, 255, 255, 0.03);
 
-  --settings-tools: #2be9ff;
-  --settings-mcp: #e9ff2b;
-  --settings-skills: #ff2ec8;
-  --settings-telegram: #38f0b0;
+  --settings-tools: #00e5ff;
+  --settings-mcp: #00e676;
+  --settings-skills: #f400a1;
+  --settings-telegram: #ffab00;
 
-  --font-display: "Chakra Petch", "Inter", sans-serif;
+  --font-display: "Outfit", "Inter", sans-serif;
   --font-body: "Inter", -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  --radius-sm: 4px;
-  --radius-md: 10px;
-  --radius-lg: 18px;
-  --shadow-card: 0 0 0 1px rgba(43, 233, 255, 0.06), 0 10px 40px rgba(43, 233, 255, 0.08);
-  --glow-cyan: 0 0 12px rgba(43, 233, 255, 0.55);
-  --glow-magenta: 0 0 12px rgba(255, 46, 200, 0.5);
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  --glow-cyan: 0 0 24px rgba(0, 229, 255, 0.25);
+  --glow-magenta: 0 0 24px rgba(244, 0, 161, 0.25);
 }
 
 :root[data-theme="dark"] body {
-  background:
-    linear-gradient(180deg, rgba(155, 63, 251, 0.06), transparent 40%),
-    var(--bg);
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 32px 32px;
+  background: var(--bg);
+  background-image: radial-gradient(var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  position: relative;
+  z-index: 0;
 }
 
-/* Signature element: a scanning circuit-line sweep used behind the
-   hardware-check screen — ties the "Grid" name to a literal animated grid. */
+:root[data-theme="dark"] body::before {
+  content: "";
+  position: absolute;
+  top: -20%;
+  left: -10%;
+  width: 60vw;
+  height: 60vh;
+  background: radial-gradient(circle, rgba(0, 229, 255, 0.08) 0%, rgba(244, 0, 161, 0.03) 40%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: -1;
+  animation: floatOrb 15s ease-in-out infinite alternate;
+}
+
+@keyframes floatOrb {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(15vw, 10vh) scale(1.2); }
+}
+
 @keyframes grid-scan {
   0%   { transform: translateY(-100%); opacity: 0; }
   10%  { opacity: 1; }
@@ -64,8 +80,8 @@
   content: "";
   position: absolute;
   left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
-  box-shadow: var(--glow-cyan);
-  animation: grid-scan 2.4s ease-in-out infinite;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.8), rgba(244, 0, 161, 0.8), transparent);
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.4);
+  animation: grid-scan 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }

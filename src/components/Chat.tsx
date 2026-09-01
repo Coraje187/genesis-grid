@@ -322,49 +322,90 @@ export default function Chat({
   }
 
   function renderMessageContent(content: string) {
-    const imageRegex = /!\[([^\]]*)\]\((data:image\/[a-zA-Z+.-]+;base64,[^)]+)\)/g;
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match;
+    // Process <think> tags first (for reasoning models)
+    const renderNode = (text: string, isThought = false, keyPrefix = "") => {
+      const imageRegex = /!\[([^\]]*)\]\((data:image\/[a-zA-Z+.-]+;base64,[^)]+)\)/g;
+      const parts: React.ReactNode[] = [];
+      let lastIndex = 0;
+      let match;
 
-    while ((match = imageRegex.exec(content)) !== null) {
-      if (match.index > lastIndex) {
+      while ((match = imageRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          parts.push(
+            <span key={`${keyPrefix}-txt-${lastIndex}`}>
+              {parseTextWithLinks(text.substring(lastIndex, match.index))}
+            </span>
+          );
+        }
+        const alt = match[1];
+        const src = match[2];
         parts.push(
-          <span key={`txt-${lastIndex}`}>
-            {parseTextWithLinks(content.substring(lastIndex, match.index))}
+          <div key={`${keyPrefix}-img-${match.index}`} style={{ marginTop: 8, marginBottom: 8 }}>
+            <img
+              src={src}
+              alt={alt}
+              style={{
+                maxWidth: "100%",
+                maxHeight: 250,
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                display: "block",
+              }}
+            />
+            <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>{alt}</span>
+          </div>
+        );
+        lastIndex = imageRegex.lastIndex;
+      }
+
+      if (lastIndex < text.length) {
+        parts.push(
+          <span key={`${keyPrefix}-txt-${lastIndex}`}>
+            {parseTextWithLinks(text.substring(lastIndex))}
           </span>
         );
       }
-      const alt = match[1];
-      const src = match[2];
-      parts.push(
-        <div key={`img-${match.index}`} style={{ marginTop: 8, marginBottom: 8 }}>
-          <img
-            src={src}
-            alt={alt}
-            style={{
-              maxWidth: "100%",
-              maxHeight: 250,
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--border)",
-              display: "block",
-            }}
-          />
-          <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>{alt}</span>
-        </div>
-      );
-      lastIndex = imageRegex.lastIndex;
+
+      if (isThought) {
+        return (
+          <details key={`${keyPrefix}-thought`} style={{ 
+            marginBottom: '12px',
+            background: 'var(--bg-sunken)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '8px 12px'
+          }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--ink-soft)', fontSize: '12px', fontWeight: 600, userSelect: 'none' }}>
+              🧠 Thought Process
+            </summary>
+            <div style={{ marginTop: '8px', fontSize: '13px', color: 'var(--ink-soft)', whiteSpace: 'pre-wrap', fontStyle: 'italic' }}>
+              {parts.length > 0 ? parts : text}
+            </div>
+          </details>
+        );
+      }
+      return parts.length > 0 ? parts : text;
+    };
+
+    // Split by <think>...</think>
+    const thinkRegex = /<think>([\s\S]*?)(?:<\/think>|$)/g;
+    const finalParts: React.ReactNode[] = [];
+    let lastThinkIndex = 0;
+    let matchThink;
+
+    while ((matchThink = thinkRegex.exec(content)) !== null) {
+      if (matchThink.index > lastThinkIndex) {
+        finalParts.push(renderNode(content.substring(lastThinkIndex, matchThink.index), false, `main-${lastThinkIndex}`));
+      }
+      finalParts.push(renderNode(matchThink[1], true, `think-${matchThink.index}`));
+      lastThinkIndex = thinkRegex.lastIndex;
     }
 
-    if (lastIndex < content.length) {
-      parts.push(
-        <span key={`txt-${lastIndex}`}>
-          {parseTextWithLinks(content.substring(lastIndex))}
-        </span>
-      );
+    if (lastThinkIndex < content.length) {
+      finalParts.push(renderNode(content.substring(lastThinkIndex), false, `main-${lastThinkIndex}`));
     }
 
-    return parts.length > 0 ? parts : content;
+    return finalParts.length > 0 ? finalParts : content;
   }
 
   useEffect(() => {

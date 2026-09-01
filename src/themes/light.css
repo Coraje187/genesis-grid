@@ -3,36 +3,36 @@
    explicitly requested as this theme's reference point. */
 
 :root[data-theme="light"] {
-  --bg: #f7f3ea;
-  --bg-raised: #fffdf8;
-  --bg-sunken: #efe9dc;
-  --ink: #2b2620;
-  --ink-soft: #6b6255;
-  --border: #e2d9c6;
-  --accent: #c96442;
-  --accent-soft: #e8ceb9;
+  --bg: #fafafa;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f0f0f2;
+  --ink: #1a1a1f;
+  --ink-soft: #6e6e77;
+  --border: rgba(0, 0, 0, 0.08);
+  --accent: #0088cc;
+  --accent-soft: #e0f2fe;
   --accent-ink: #ffffff;
-  --success: #4f7a5b;
-  --warn: #b8863b;
-  --grid-line: rgba(201, 100, 66, 0.08);
+  --success: #10b981;
+  --warn: #f59e0b;
+  --grid-line: rgba(0, 0, 0, 0.04);
 
-  --settings-tools: #c96442;
-  --settings-mcp: #4f7a5b;
-  --settings-skills: #6b6255;
-  --settings-telegram: #b8863b;
+  --settings-tools: #0088cc;
+  --settings-mcp: #10b981;
+  --settings-skills: #6e6e77;
+  --settings-telegram: #f59e0b;
 
-  --font-display: "Fraunces", Georgia, serif;
+  --font-display: "Outfit", -apple-system, sans-serif;
   --font-body: "Inter", -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  --radius-sm: 6px;
-  --radius-md: 12px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
   --radius-lg: 20px;
-  --shadow-card: 0 1px 2px rgba(43, 38, 32, 0.06), 0 8px 24px rgba(43, 38, 32, 0.06);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02), 0 0 0 1px rgba(0, 0, 0, 0.02) inset;
 }
 
 :root[data-theme="light"] body {
   background: var(--bg);
   background-image: radial-gradient(var(--grid-line) 1px, transparent 1px);
-  background-size: 28px 28px;
+  background-size: 24px 24px;
 }
