@@ -80,13 +80,22 @@ export default function Chat({
   const [enabledSkills, setEnabledSkills] = useState<Record<string, boolean>>({});
 
   const [isLoopMode, setIsLoopMode] = useState(false);
+  const isLoopModeRef = useRef(isLoopMode);
+  useEffect(() => { isLoopModeRef.current = isLoopMode; }, [isLoopMode]);
+
   const [loopIterations, setLoopIterations] = useState(0);
   const [loopState, setLoopState] = useState<"idle" | "architect" | "oracle" | "cipher">("idle");
   const loopStateRef = useRef(loopState);
   useEffect(() => { loopStateRef.current = loopState; }, [loopState]);
   
   const [isWarRoomMode, setIsWarRoomMode] = useState(false);
+  const isWarRoomModeRef = useRef(isWarRoomMode);
+  useEffect(() => { isWarRoomModeRef.current = isWarRoomMode; }, [isWarRoomMode]);
+
   const [warRoomIterations, setWarRoomIterations] = useState(0);
+  const warRoomIterationsRef = useRef(warRoomIterations);
+  useEffect(() => { warRoomIterationsRef.current = warRoomIterations; }, [warRoomIterations]);
+
   const [warRoomState, setWarRoomState] = useState<"idle" | "coder" | "critic">("idle");
   const warRoomStateRef = useRef(warRoomState);
   useEffect(() => { warRoomStateRef.current = warRoomState; }, [warRoomState]);
@@ -97,12 +106,31 @@ export default function Chat({
   const speechRecRef = useRef<any>(null);
   
   const [loopAgents, setLoopAgents] = useState<any[]>([]);
+  const loopAgentsRef = useRef(loopAgents);
+  useEffect(() => { loopAgentsRef.current = loopAgents; }, [loopAgents]);
+
+  const [activeAgentStatus, setActiveAgentStatus] = useState<string>("");
+
+  async function getLatestAgents(): Promise<any[]> {
+    try {
+      const json = await invoke<string>("load_agents_config");
+      const parsed = JSON.parse(json);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setLoopAgents(parsed);
+        loopAgentsRef.current = parsed;
+        return parsed;
+      }
+    } catch (e) {}
+    return loopAgentsRef.current.length > 0 ? loopAgentsRef.current : [
+      { id: "architect", name: "Architect", role: "You are the Master Planner. Your job is to orchestrate complex tasks, break them down, and delegate them to other agents.", model: "coraje187/genesis-grid:uncensored" },
+      { id: "cipher", name: "Cipher", role: "You are an expert Software Engineer. You write clean, optimized code and debug complex issues.", model: "richardyoung/gemma-4-12b-coder-abliterated:latest" },
+      { id: "oracle", name: "Oracle", role: "You are a Research Specialist. You browse the web, analyze documents, and summarize information efficiently.", model: "qwen2.5-coder:7b" }
+    ];
+  }
 
   // Load agents for Loop Mode
   useEffect(() => {
-    invoke<string>("load_agents_config")
-      .then(json => setLoopAgents(JSON.parse(json)))
-      .catch(() => {});
+    getLatestAgents().catch(() => {});
   }, []);
 
   function refreshSkillsAndTools() {
@@ -680,7 +708,7 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         invoke("save_chat_session", { id: sessionId, model, messages: prev }).catch(() => {});
         const lastAssistant = prev[prev.length - 1];
         const lastUser = prev[prev.length - 2];
-        if (lastAssistant && lastUser && (model === "genesis" || isLoopMode)) {
+        if (lastAssistant && lastUser && (model === "genesis" || isLoopModeRef.current)) {
           const match = lastAssistant.content.match(/\[EXECUTE:\s*([a-zA-Z0-9_]+)\s*(\{.*\})\]/);
           if (match) {
             try {
@@ -693,44 +721,47 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
                 return prev;
               }
 
-              if (!isLoopMode) {
+              if (!isLoopModeRef.current) {
                 setPendingToolCall({ name, args, messageHistory: prev });
               }
               return prev;
             } catch (e) {}
           }
-          if (!isLoopMode) {
+          if (!isLoopModeRef.current) {
             compileMemoryLoop(lastUser.content, lastAssistant.content);
           }
         }
         
-        if (isLoopMode) {
+        if (isLoopModeRef.current) {
           const currentStep = loopStateRef.current;
           if (currentStep === "architect") {
-            setTimeout(() => runLoopStep("oracle", "", [], prev), 500);
+            setTimeout(() => runLoopStep("oracle", "", [], prev), 600);
           } else if (currentStep === "oracle") {
-            setTimeout(() => runLoopStep("cipher", "", [], prev), 500);
+            setTimeout(() => runLoopStep("cipher", "", [], prev), 600);
           } else if (currentStep === "cipher") {
             setLoopState("idle");
             setSending(false);
+            setActiveAgentStatus("");
           }
-        } else if (isWarRoomMode) {
+        } else if (isWarRoomModeRef.current) {
           const currentStep = warRoomStateRef.current;
           const isApproved = lastAssistant?.content.includes("APPROVE");
           
-          if (warRoomIterations >= 3 || isApproved) {
+          if (warRoomIterationsRef.current >= 3 || isApproved) {
              setWarRoomState("idle");
              setSending(false);
+             setActiveAgentStatus("");
           } else {
              if (currentStep === "coder") {
-               setTimeout(() => runWarRoomStep("critic", "", [], prev), 500);
+               setTimeout(() => runWarRoomStep("critic", "", [], prev), 600);
              } else if (currentStep === "critic") {
                setWarRoomIterations(i => i + 1);
-               setTimeout(() => runWarRoomStep("coder", "", [], prev), 500);
+               setTimeout(() => runWarRoomStep("coder", "", [], prev), 600);
              }
           }
         } else {
           setSending(false);
+          setActiveAgentStatus("");
           if (isVoiceModeRef.current && lastAssistant && lastAssistant.content.trim()) {
             // Read response aloud using OS-level TTS
             const utterance = new SpeechSynthesisUtterance(lastAssistant.content);
@@ -1016,9 +1047,11 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
         });
         
         let hasToolCall = false;
+        let latestNext: ChatMessage[] = [];
         setMessages((prev) => {
           const next = [...prev];
           next[next.length - 1] = { role: "assistant", content: reply };
+          latestNext = next;
           invoke("save_chat_session", { id: sessionId, model, messages: next }).catch(() => {});
           
           const match = reply.match(/\[EXECUTE:\s*([a-zA-Z0-9_]+)\s*(\{.*\})\]/);
@@ -1038,8 +1071,35 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
           return next;
         });
         
-        if (!hasToolCall) {
+        if (isLoopModeRef.current) {
+          const currentStep = loopStateRef.current;
+          if (currentStep === "architect") {
+            setTimeout(() => runLoopStep("oracle", "", [], latestNext), 600);
+          } else if (currentStep === "oracle") {
+            setTimeout(() => runLoopStep("cipher", "", [], latestNext), 600);
+          } else if (currentStep === "cipher") {
+            setLoopState("idle");
+            setSending(false);
+            setActiveAgentStatus("");
+          }
+        } else if (isWarRoomModeRef.current) {
+          const currentStep = warRoomStateRef.current;
+          const isApproved = reply.includes("APPROVE");
+          if (warRoomIterationsRef.current >= 3 || isApproved) {
+            setWarRoomState("idle");
+            setSending(false);
+            setActiveAgentStatus("");
+          } else {
+            if (currentStep === "coder") {
+              setTimeout(() => runWarRoomStep("critic", "", [], latestNext), 600);
+            } else if (currentStep === "critic") {
+              setWarRoomIterations(i => i + 1);
+              setTimeout(() => runWarRoomStep("coder", "", [], latestNext), 600);
+            }
+          }
+        } else if (!hasToolCall) {
           setSending(false);
+          setActiveAgentStatus("");
         }
       } catch (e) {
         setMessages((prev) => {
@@ -1048,6 +1108,7 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
           return next;
         });
         setSending(false);
+        setActiveAgentStatus("");
       }
       return;
     }
@@ -1137,21 +1198,21 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
     }
   }
 
-  function runWarRoomStep(step: "coder" | "critic", userText: string, files: any[], currentHistory: ChatMessage[]) {
-    const cipher = loopAgents.find(a => a.id === "cipher") || { name: "Cipher (Blue Team)", role: "Coder", model: "genesis" };
-    const architect = loopAgents.find(a => a.id === "architect") || { name: "Architect (Red Team Critic)", role: "Planner", model: "genesis" };
+  async function runWarRoomStep(step: "coder" | "critic", userText: string, files: any[], currentHistory: ChatMessage[]) {
+    const agents = await getLatestAgents();
+    const cipher = agents.find(a => a.id === "cipher") || { name: "Cipher (Blue Team)", role: "Coder", model: "richardyoung/gemma-4-12b-coder-abliterated:latest" };
+    const architect = agents.find(a => a.id === "architect") || { name: "Architect (Red Team Critic)", role: "Planner", model: "coraje187/genesis-grid:uncensored" };
 
-    const getModelStr = (agentModel: string) => agentModel === "genesis" ? agentBrain : agentModel;
+    const getModelStr = (agentModel: string) => (!agentModel || agentModel === "genesis") ? agentBrain : agentModel;
 
-    let targetAgent;
+    let targetAgent = step === "coder" ? cipher : architect;
+    let targetModel = getModelStr(targetAgent.model);
     let overrideSystemText = "";
     
     if (step === "coder") {
-      targetAgent = cipher;
       const criticOutput = currentHistory.length > 0 ? currentHistory[currentHistory.length - 1].content : "";
       overrideSystemText = `[System: ${cipher.role} - BLUE TEAM]\n\nYou are the Blue Team Coder. Provide a solution.\n${criticOutput ? "The Critic said: " + criticOutput + "\nPlease revise your solution." : ""}`;
     } else {
-      targetAgent = architect;
       const coderOutput = currentHistory[currentHistory.length - 1].content;
       overrideSystemText = `[System: ${architect.role} - RED TEAM]\n\nYou are the Red Team Critic. Review the Coder's solution for security flaws or bugs. If it is perfect, explicitly say 'APPROVE'. Otherwise, critique it.\nCoder's Solution:\n${coderOutput}`;
     }
@@ -1167,16 +1228,18 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
 
     setMessages(newHistory);
     setWarRoomState(step);
+    setActiveAgentStatus(`⚔️ War Room: [${targetAgent.name}] loading/running model ${targetModel}...`);
     setSending(true);
-    runInference(newHistory, userMsg, getModelStr(targetAgent.model), sysMsg);
+    runInference(newHistory, userMsg, targetModel, sysMsg);
   }
 
-  function runLoopStep(step: "architect" | "oracle" | "cipher", userText: string, files: any[], currentHistory: ChatMessage[]) {
-    const architect = loopAgents.find(a => a.id === "architect") || { name: "Architect", role: "Planner", model: "genesis" };
-    const oracle = loopAgents.find(a => a.id === "oracle") || { name: "Oracle", role: "Researcher", model: "genesis" };
-    const cipher = loopAgents.find(a => a.id === "cipher") || { name: "Cipher", role: "Coder", model: "genesis" };
+  async function runLoopStep(step: "architect" | "oracle" | "cipher", userText: string, files: any[], currentHistory: ChatMessage[]) {
+    const agents = await getLatestAgents();
+    const architect = agents.find(a => a.id === "architect") || { name: "Architect", role: "Planner", model: "coraje187/genesis-grid:uncensored" };
+    const oracle = agents.find(a => a.id === "oracle") || { name: "Oracle", role: "Researcher", model: "qwen2.5-coder:7b" };
+    const cipher = agents.find(a => a.id === "cipher") || { name: "Cipher", role: "Coder", model: "richardyoung/gemma-4-12b-coder-abliterated:latest" };
 
-    const getModelStr = (agentModel: string) => agentModel === "genesis" ? agentBrain : agentModel;
+    const getModelStr = (agentModel: string) => (!agentModel || agentModel === "genesis") ? agentBrain : agentModel;
 
     let targetAgent;
     let overrideSystemText = "";
@@ -1186,15 +1249,16 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
       overrideSystemText = `[System: ${architect.role}]\n\nUser Request: ${userText}\n\nPlease break this down into a concrete plan for the next agent.`;
     } else if (step === "oracle") {
       targetAgent = oracle;
-      const lastOutput = currentHistory[currentHistory.length - 1].content;
+      const lastOutput = currentHistory[currentHistory.length - 1]?.content || "";
       overrideSystemText = `[System: ${oracle.role}]\n\nArchitect's Plan:\n${lastOutput}\n\nPlease perform necessary analysis/research for this plan.`;
     } else {
       targetAgent = cipher;
-      const architectOutput = currentHistory[currentHistory.length - 3].content;
-      const oracleOutput = currentHistory[currentHistory.length - 1].content;
+      const architectOutput = currentHistory[currentHistory.length - 3]?.content || "";
+      const oracleOutput = currentHistory[currentHistory.length - 1]?.content || "";
       overrideSystemText = `[System: ${cipher.role}]\n\nArchitect's Plan:\n${architectOutput}\n\nOracle's Research:\n${oracleOutput}\n\nPlease execute the final task and provide the output to the user.`;
     }
 
+    let targetModel = getModelStr(targetAgent.model);
     const sysMsg: ChatMessage = { role: "system", content: overrideSystemText };
     const userMsg: ChatMessage = { role: "user", content: step === "architect" ? userText : "(Internal Loop Handoff)" };
 
@@ -1206,12 +1270,16 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
 
     setMessages(newHistory);
     setLoopState(step);
+    setActiveAgentStatus(`♺ Loop Mode: [${targetAgent.name}] loading/running model ${targetModel}...`);
     setSending(true);
-    runInference(newHistory, userMsg, getModelStr(targetAgent.model), sysMsg);
+    runInference(newHistory, userMsg, targetModel, sysMsg);
   }
 
   async function handleAbort() {
     setSending(false);
+    setActiveAgentStatus("");
+    setLoopState("idle");
+    setWarRoomState("idle");
     try {
       await invoke("abort_chat");
     } catch (e) {
@@ -1751,7 +1819,25 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+      {activeAgentStatus && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 14px",
+          marginTop: 12,
+          background: isWarRoomMode ? "rgba(255, 46, 200, 0.08)" : "rgba(0, 242, 254, 0.08)",
+          border: isWarRoomMode ? "1px solid #ff2ec8" : "1px solid var(--accent)",
+          borderRadius: "var(--radius-sm)",
+          fontSize: 12,
+          color: isWarRoomMode ? "#ff2ec8" : "var(--accent)"
+        }}>
+          <span style={{ display: "inline-block", width: 10, height: 10, border: `2px solid ${isWarRoomMode ? "#ff2ec8" : "var(--accent)"}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+          <span>{activeAgentStatus} <em style={{ opacity: 0.8, fontSize: 11, marginLeft: 6 }}>(Swapping large models into VRAM can take 30–60s)</em></span>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginTop: activeAgentStatus ? 8 : 16 }}>
         <input 
           type="file" 
           ref={fileInputRef} 
@@ -1760,6 +1846,10 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
           multiple 
         />
         <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
           @keyframes pulseRed {
             0% { transform: scale(1); opacity: 1; }
             50% { transform: scale(1.08); opacity: 0.8; }
