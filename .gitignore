@@ -16,3 +16,4 @@ tauri-key
 tauri-key.pub
 *.key
 *.pem
+conversations/
