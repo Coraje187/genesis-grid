@@ -1,26 +1,25 @@
-/* Genesis Grid — Dark theme
-   Pulled from the GENESIS GRID LABS banner: void black city, circuit-cyan
-   and neon-magenta signage, ultraviolet haze. */
+/* Genesis Grid — Dark theme (Premium Gold Edition)
+   Matched to the cinematic DNA/Crest logo: void black, brushed gold, and elegant shadows. */
 
 :root[data-theme="dark"] {
   --bg: #090a0f;
-  --bg-raised: rgba(18, 20, 28, 0.65);
+  --bg-raised: rgba(22, 24, 31, 0.75);
   --bg-sunken: #050609;
-  --ink: #f2f5f9;
-  --ink-soft: #8a96aa;
-  --border: rgba(255, 255, 255, 0.08);
-  --accent: #00e5ff;      /* sleek cyan */
-  --accent-2: #f400a1;    /* elegant magenta */
-  --accent-3: #7b1fa2;    /* deep violet */
+  --ink: #f8f6f0;
+  --ink-soft: #9a9b9f;
+  --border: rgba(197, 163, 101, 0.15); /* Subdued gold border */
+  --accent: #c5a365;      /* Luxurious Gold */
+  --accent-2: #8a7337;    /* Deep Antique Gold */
+  --accent-3: #4a4d5e;    /* Slate Blue Grey (for contrast) */
   --accent-ink: #000000;
-  --success: #00e676;
-  --warn: #ffab00;
-  --grid-line: rgba(255, 255, 255, 0.03);
+  --success: #65c58a;
+  --warn: #c57b65;
+  --grid-line: rgba(197, 163, 101, 0.04); /* Faint gold grid */
 
-  --settings-tools: #00e5ff;
-  --settings-mcp: #00e676;
-  --settings-skills: #f400a1;
-  --settings-telegram: #ffab00;
+  --settings-tools: #c5a365;
+  --settings-mcp: #8a7337;
+  --settings-skills: #e6c875;
+  --settings-telegram: #a98d57;
 
   --font-display: "Outfit", "Inter", sans-serif;
   --font-body: "Inter", -apple-system, sans-serif;
@@ -29,15 +28,15 @@
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
-  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-  --glow-cyan: 0 0 24px rgba(0, 229, 255, 0.25);
-  --glow-magenta: 0 0 24px rgba(244, 0, 161, 0.25);
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(197, 163, 101, 0.1) inset;
+  --glow-cyan: 0 0 24px rgba(197, 163, 101, 0.2); /* Now glow-gold */
+  --glow-magenta: 0 0 24px rgba(138, 115, 55, 0.2); /* Now glow-dark-gold */
 }
 
 :root[data-theme="dark"] body {
   background: var(--bg);
   background-image: radial-gradient(var(--grid-line) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-size: 32px 32px;
   position: relative;
   z-index: 0;
 }
@@ -49,7 +48,7 @@
   left: -10%;
   width: 60vw;
   height: 60vh;
-  background: radial-gradient(circle, rgba(0, 229, 255, 0.08) 0%, rgba(244, 0, 161, 0.03) 40%, transparent 70%);
+  background: radial-gradient(circle, rgba(197, 163, 101, 0.06) 0%, rgba(138, 115, 55, 0.02) 40%, transparent 70%);
   border-radius: 50%;
   filter: blur(80px);
   pointer-events: none;
@@ -59,7 +58,7 @@
 
 @keyframes floatOrb {
   0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(15vw, 10vh) scale(1.2); }
+  100% { transform: translate(10vw, 8vh) scale(1.1); }
 }
 
 @keyframes grid-scan {
@@ -81,7 +80,7 @@
   position: absolute;
   left: 0; right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.8), rgba(244, 0, 161, 0.8), transparent);
-  box-shadow: 0 0 16px rgba(0, 229, 255, 0.4);
-  animation: grid-scan 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  background: linear-gradient(90deg, transparent, rgba(197, 163, 101, 0.6), rgba(230, 200, 117, 0.8), transparent);
+  box-shadow: 0 0 16px rgba(197, 163, 101, 0.3);
+  animation: grid-scan 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
