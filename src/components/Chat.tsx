@@ -110,6 +110,23 @@ export default function Chat({
   useEffect(() => { loopAgentsRef.current = loopAgents; }, [loopAgents]);
 
   const [activeAgentStatus, setActiveAgentStatus] = useState<string>("");
+  const [workspaceRules, setWorkspaceRules] = useState<string>("");
+
+  useEffect(() => {
+    // Try to load workspace rules (.cursorrules or .genesisrules)
+    const loadRules = async () => {
+      try {
+        let rules = await invoke<string>("read_file_text", { path: ".genesisrules" });
+        if (rules) setWorkspaceRules(rules);
+      } catch (e) {
+        try {
+          let rules = await invoke<string>("read_file_text", { path: ".cursorrules" });
+          if (rules) setWorkspaceRules(rules);
+        } catch (e2) {}
+      }
+    };
+    loadRules();
+  }, []);
 
   async function getLatestAgents(): Promise<any[]> {
     try {
@@ -415,8 +432,8 @@ export default function Chat({
       return parts.length > 0 ? parts : text;
     };
 
-    // Split by <think>...</think>
-    const thinkRegex = /<think>([\s\S]*?)(?:<\/think>|$)/g;
+    // Split by <think>...</think> or <thought>...</thought>
+    const thinkRegex = /<(?:think|thought)>([\s\S]*?)(?:<\/(?:think|thought)>|$)/g;
     const finalParts: React.ReactNode[] = [];
     let lastThinkIndex = 0;
     let matchThink;
@@ -1016,7 +1033,7 @@ Do you want to allow this?`);
         role: "system",
         content: `You are Genesis, the primary cybernetic intelligence of Genesis Grid Labs. You speak with a clean, high-tech, futuristic developer-centric persona, combining absolute capability with synthwave styling. You are here to help the user build mods, test code, run local AI, and optimize their local machine. Keep responses concise, helpful, and technically precise.
 
-Your local system environment:
+${workspaceRules ? `CRITICAL WORKSPACE INSTRUCTIONS:\n${workspaceRules}\n\n` : ""}Your local system environment:
 - OS: Windows
 - Downloads Folder Path: "${downloadsPath || "Unknown (ask user if needed)"}"
 
