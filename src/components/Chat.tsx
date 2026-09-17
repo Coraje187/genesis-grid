@@ -179,7 +179,7 @@ export default function Chat({
       recognition.onresult = (event: any) => {
         const transcript = event.results[event.results.length - 1][0].transcript;
         if (transcript.trim()) {
-          window.speechSynthesis.cancel();
+          window.speechSynthesis?.cancel();
           // Auto-send when voice is heard
           setDraft(transcript);
           setTimeout(() => {
@@ -202,7 +202,7 @@ export default function Chat({
         speechRecRef.current.stop();
         speechRecRef.current = null;
       }
-      window.speechSynthesis.cancel();
+      window.speechSynthesis?.cancel();
     }
     
     return () => {
@@ -210,7 +210,7 @@ export default function Chat({
         speechRecRef.current.onend = null;
         speechRecRef.current.stop();
       }
-      window.speechSynthesis.cancel();
+     window.speechSynthesis?.cancel();
     };
   }, [isVoiceMode]);
 
@@ -765,7 +765,7 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
           if (isVoiceModeRef.current && lastAssistant && lastAssistant.content.trim()) {
             // Read response aloud using OS-level TTS
             const utterance = new SpeechSynthesisUtterance(lastAssistant.content);
-            window.speechSynthesis.speak(utterance);
+            window.speechSynthesis?.speak(utterance);
           }
         }
         
