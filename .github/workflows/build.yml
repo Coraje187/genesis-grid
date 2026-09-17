@@ -36,7 +36,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build installer
-        uses: tauri-apps/tauri-action@v0.6
+        uses: uses: tauri-apps/tauri-action@v0
         with:
           node-version: 20
 
