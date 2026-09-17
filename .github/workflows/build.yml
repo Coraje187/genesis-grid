@@ -35,8 +35,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build installer
-        uses: uses: tauri-apps/tauri-action@v0
+      - name: Install Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
