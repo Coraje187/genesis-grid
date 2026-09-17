@@ -48,24 +48,25 @@
   left: -10%;
   width: 60vw;
   height: 60vh;
-  background: radial-gradient(circle, rgba(197, 163, 101, 0.06) 0%, rgba(138, 115, 55, 0.02) 40%, transparent 70%);
+  /* Replaced expensive blur() with a softer gradient */
+  background: radial-gradient(circle, rgba(197, 163, 101, 0.05) 0%, rgba(138, 115, 55, 0.01) 30%, transparent 60%);
   border-radius: 50%;
-  filter: blur(80px);
   pointer-events: none;
   z-index: -1;
+  will-change: transform;
   animation: floatOrb 15s ease-in-out infinite alternate;
 }
 
 @keyframes floatOrb {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(10vw, 8vh) scale(1.1); }
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(10vw, 8vh, 0) scale(1.1); }
 }
 
 @keyframes grid-scan {
-  0%   { transform: translateY(-100%); opacity: 0; }
+  0%   { transform: translate3d(0, -100%, 0); opacity: 0; }
   10%  { opacity: 1; }
   90%  { opacity: 1; }
-  100% { transform: translateY(100%); opacity: 0; }
+  100% { transform: translate3d(0, 100%, 0); opacity: 0; }
 }
 
 .scan-sweep {
@@ -82,5 +83,6 @@
   height: 1px;
   background: linear-gradient(90deg, transparent, rgba(197, 163, 101, 0.6), rgba(230, 200, 117, 0.8), transparent);
   box-shadow: 0 0 16px rgba(197, 163, 101, 0.3);
+  will-change: transform, opacity;
   animation: grid-scan 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
