@@ -179,7 +179,7 @@ export default function Chat({
       recognition.onresult = (event: any) => {
         const transcript = event.results[event.results.length - 1][0].transcript;
         if (transcript.trim()) {
-          window.speechSynthesis.cancel();
+          if (window.speechSynthesis) window.speechSynthesis.cancel();
           // Auto-send when voice is heard
           setDraft(transcript);
           setTimeout(() => {
@@ -191,26 +191,26 @@ export default function Chat({
 
       recognition.onend = () => {
         if (isVoiceModeRef.current) {
-          recognition.start(); // Auto-restart listening
+          try { recognition.start(); } catch (e) {} // Auto-restart listening safely
         }
       };
 
-      recognition.start();
+      try { recognition.start(); } catch (e) {}
       speechRecRef.current = recognition;
     } else {
       if (speechRecRef.current) {
-        speechRecRef.current.stop();
+        try { speechRecRef.current.stop(); } catch (e) {}
         speechRecRef.current = null;
       }
-      window.speechSynthesis.cancel();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
     }
     
     return () => {
       if (speechRecRef.current) {
         speechRecRef.current.onend = null;
-        speechRecRef.current.stop();
+        try { speechRecRef.current.stop(); } catch (e) {}
       }
-      window.speechSynthesis.cancel();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
     };
   }, [isVoiceMode]);
 
@@ -763,9 +763,15 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
           setSending(false);
           setActiveAgentStatus("");
           if (isVoiceModeRef.current && lastAssistant && lastAssistant.content.trim()) {
-            // Read response aloud using OS-level TTS
-            const utterance = new SpeechSynthesisUtterance(lastAssistant.content);
-            window.speechSynthesis.speak(utterance);
+            // Read response aloud using OS-level TTS safely
+            if (window.speechSynthesis && (window as any).SpeechSynthesisUtterance) {
+               try {
+                 const utterance = new (window as any).SpeechSynthesisUtterance(lastAssistant.content);
+                 window.speechSynthesis.speak(utterance);
+               } catch (e) {
+                 console.warn("TTS failed:", e);
+               }
+            }
           }
         }
         
