@@ -1375,20 +1375,20 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
     });
   }
 
-  async function captureGodsEye() {
+  async function captureGenesisEye() {
     try {
       const b64 = await invoke<string>("capture_screen");
       setAttachedFiles((prev) => [
         ...prev,
         {
-          name: "gods_eye_capture.jpg",
+          name: "genesis_eye_capture.jpg",
           type: "image/jpeg",
           content: "",
           dataUrl: b64,
         },
       ]);
     } catch (err) {
-      console.error("Gods Eye capture failed:", err);
+      console.error("Genesis Eye capture failed:", err);
       alert("Failed to capture screen: " + String(err));
     }
   }
@@ -1973,8 +1973,8 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
         </button>
         <button 
           className="btn secondary" 
-          onClick={captureGodsEye}
-          title="God's Eye (Capture Screen)"
+          onClick={captureGenesisEye}
+          title="Genesis Eye (Capture Screen)"
           style={{ padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           👁️
