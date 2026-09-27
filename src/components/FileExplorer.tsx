@@ -55,13 +55,18 @@ function FolderNode({ path, name, initialOpen = false }: { path: string, name: s
       </div>
       {isOpen && (
         <div className="file-node-children">
-          {children.map((child) => (
+          {children.slice(0, 150).map((child) => (
             child.is_dir ? (
-              <FolderNode key={child.name} path={`${path}\\${child.name}`} name={child.name} />
+              <FolderNode key={child.name} path={`${path}\${child.name}`} name={child.name} />
             ) : (
-              <FileNode key={child.name} path={`${path}\\${child.name}`} name={child.name} />
+              <FileNode key={child.name} path={`${path}\${child.name}`} name={child.name} />
             )
           ))}
+          {children.length > 150 && (
+            <div style={{ padding: "4px 20px", fontSize: 11, color: "var(--ink-soft)", fontStyle: "italic" }}>
+              + {children.length - 150} more items hidden...
+            </div>
+          )}
         </div>
       )}
     </div>
