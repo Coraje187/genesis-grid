@@ -88,6 +88,7 @@ export default function Chat({
   const loopStateRef = useRef(loopState);
   useEffect(() => { loopStateRef.current = loopState; }, [loopState]);
   
+  const [isSwarmMode, setIsSwarmMode] = useState(false);
   const [isWarRoomMode, setIsWarRoomMode] = useState(false);
   const isWarRoomModeRef = useRef(isWarRoomMode);
   useEffect(() => { isWarRoomModeRef.current = isWarRoomMode; }, [isWarRoomMode]);
@@ -961,7 +962,7 @@ Do you want to allow this?`);
     executeAuto();
   }, [autoExecToolCall, isLoopMode]);
 
-  async function runInference(history: ChatMessage[], userMsg: ChatMessage, overrideModel?: string, overrideSystem?: ChatMessage) {
+  async function runInference(history: ChatMessage[], userMsg: ChatMessage, overrideModel?: string, overrideSystem?: ChatMessage, keepAlive?: number) {
     let routeModel = overrideModel || model;
     let systemPrompt: ChatMessage | null = overrideSystem || null;
 
@@ -1138,7 +1139,7 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
 
     try {
       const historyToSend = systemPrompt ? [systemPrompt, ...history.slice(0, -1)] : history.slice(0, -1);
-      await invoke("chat_send", { model: routeModel, history: historyToSend });
+      await invoke("chat_send", { model: routeModel, history: historyToSend, keepAlive });
     } catch (e) {
       setMessages((prev) => {
         const next = [...prev];
@@ -1240,6 +1241,31 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
   }, [draft, isLoopMode, isWarRoomMode, shadowCache?.draft]);
   // -----------------------------------
 
+    async function runSwarmStep(fullContent: string, userMsg: ChatMessage) {
+    setActiveAgentStatus("🐝 Swarm: Analyzing intent and dynamically assigning micro-agent...");
+    setSending(true);
+
+    const lower = fullContent.toLowerCase();
+    let bestModel = model;
+    
+    if (lower.includes("sql") || lower.includes("database") || lower.includes("query") || lower.includes("table") || lower.includes("join")) {
+      bestModel = installedModels.find(m => m.toLowerCase().includes("sql") || m.toLowerCase().includes("coder")) || model;
+    } else if (lower.includes("python") || lower.includes("rust") || lower.includes("react") || lower.includes("code") || lower.includes("bug")) {
+      bestModel = installedModels.find(m => m.toLowerCase().includes("coder") || m.toLowerCase().includes("deepseek") || m.toLowerCase().includes("qwen")) || model;
+    } else if (lower.includes("math") || lower.includes("calculate") || lower.includes("equation")) {
+      bestModel = installedModels.find(m => m.toLowerCase().includes("math") || m.toLowerCase().includes("qwen")) || model;
+    } else if (lower.includes("write") || lower.includes("essay") || lower.includes("story") || lower.includes("blog") || lower.includes("explain")) {
+      bestModel = installedModels.find(m => m.toLowerCase().includes("hermes") || m.toLowerCase().includes("mixtral") || m.toLowerCase().includes("llama")) || model;
+    }
+    
+    const newHistory = [...messages, userMsg, { role: "assistant" as const, content: **[DYNAMIC SWARM]** Rapidly routing task to micro-agent \\\\\\\...\n\n }];
+    setMessages(newHistory);
+    
+    setActiveAgentStatus(🐝 Swarm: Handed off to [\] (Unloading immediately after));
+    
+    await runInference(newHistory, userMsg, bestModel, undefined, 0);
+  }
+
   async function handleSend() {
     if ((!draft.trim() && attachedFiles.length === 0) || !model || sending) return;
 
@@ -1261,8 +1287,8 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
 
     if (isLoopMode) {
       runLoopStep("architect", fullContent, attachedFiles, []);
-    } else if (isWarRoomMode) {
-      runWarRoomStep("coder", fullContent, attachedFiles, []);
+    } else if (isWarRoomMode) { runWarRoomStep("coder", fullContent, attachedFiles, []); } else if (isSwarmMode) {
+      runSwarmStep(fullContent, userMsg);
     } else {
       if (shadowCache && shadowCache.draft === draft.trim()) {
         console.log("SHADOW CACHE HIT! Instant response injected.");
@@ -1418,7 +1444,7 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
             className="btn" 
             onClick={() => { 
               setIsLoopMode(!isLoopMode); 
-              if (!isLoopMode) { setLoopIterations(0); setIsWarRoomMode(false); } 
+              if (!isLoopMode) { setLoopIterations(0); setIsWarRoomMode(false); setIsSwarmMode(false); } 
             }}
             style={{ 
               fontSize: 13, 
@@ -1438,7 +1464,7 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
             className="btn" 
             onClick={() => { 
               setIsWarRoomMode(!isWarRoomMode); 
-              if (!isWarRoomMode) { setWarRoomIterations(0); setIsLoopMode(false); } 
+              if (!isWarRoomMode) { setWarRoomIterations(0); setIsLoopMode(false); setIsSwarmMode(false); } 
             }}
             style={{ 
               fontSize: 13, 

@@ -1,3 +1,4 @@
+mod git_psycho;
 // Genesis Grid — Tauri backend
 // Handles: hardware detection, model tier recommendation, and talking to a
 // local Ollama install (list / pull / run models, check if Ollama exists).
@@ -1316,17 +1317,23 @@ async fn chat_send(
     window: tauri::Window,
     model: String,
     history: Vec<ChatMessage>,
+    keep_alive: Option<i32>,
     controller: tauri::State<'_, ChatController>,
 ) -> Result<(), String> {
     controller.abort.store(false, std::sync::atomic::Ordering::Relaxed);
     use futures_util::StreamExt;
 
     let client = reqwest::Client::new();
-    let body = serde_json::json!({
-        "model": model,
-        "messages": history,
-        "stream": true
-    });
+    let mut body_map = serde_json::Map::new();
+    body_map.insert("model".to_string(), serde_json::json!(model));
+    body_map.insert("messages".to_string(), serde_json::json!(history));
+    body_map.insert("stream".to_string(), serde_json::json!(true));
+    
+    if let Some(ka) = keep_alive {
+        body_map.insert("keep_alive".to_string(), serde_json::json!(ka));
+    }
+    
+    let body = serde_json::Value::Object(body_map);
 
     let response = client
         .post("http://localhost:11434/api/chat")
@@ -2723,6 +2730,7 @@ fn main() {
             read_vault_file,
             write_vault_file,
             run_browser_task,
+            analyze_git_psychology,
             git_create_branch,
             git_commit,
             run_tests_in_sandbox,
@@ -2733,3 +2741,5 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running Genesis Grid");
 }
+
+

@@ -411,11 +411,21 @@ export default function App() {
             </svg>
           </button>
         )}
-        {view === "agents" && <AgentsView installedModels={installedModels} />}
-        {view === "kanban" && <KanbanBoard />}
-        {view === "notebook" && <Notebook />}
-        {view === "browser" && <BrowserUseMode />}
-        {view === "muse" && <HermesMuse />}
+        <div style={{ display: view === "agents" ? "block" : "none", height: "100%", width: "100%" }}>
+          <AgentsView installedModels={installedModels} />
+        </div>
+        <div style={{ display: view === "kanban" ? "block" : "none", height: "100%", width: "100%" }}>
+          <KanbanBoard />
+        </div>
+        <div style={{ display: view === "notebook" ? "block" : "none", height: "100%", width: "100%" }}>
+          <Notebook />
+        </div>
+        <div style={{ display: view === "browser" ? "block" : "none", height: "100%", width: "100%" }}>
+          <BrowserUseMode />
+        </div>
+        <div style={{ display: view === "muse" ? "block" : "none", height: "100%", width: "100%" }}>
+          <HermesMuse />
+        </div>
         <div style={{ display: view === "chat" ? "flex" : "none", flexDirection: "column", height: "100%", flex: 1, minHeight: 0 }}>
           {activeSessionId ? (
             <Chat 
@@ -428,21 +438,27 @@ export default function App() {
               }}
             />
           ) : (
-            <p style={{ color: "var(--ink-soft)" }}>Starting a new chat…</p>
+            <p style={{ color: "var(--ink-soft)" }}>Starting a new chat.</p>
           )}
         </div>
-        {view === "chats" && (
+        <div style={{ display: view === "chats" ? "block" : "none", height: "100%", width: "100%" }}>
           <ChatHistory installedModels={installedModels} onOpenSession={openSession} />
-        )}
-        {view === "memory" && (
+        </div>
+        <div style={{ display: view === "memory" ? "block" : "none", height: "100%", width: "100%" }}>
           <MemoryCore />
-        )}
-        {view === "skills_tools" && (
+        </div>
+        <div style={{ display: view === "skills_tools" ? "block" : "none", height: "100%", width: "100%" }}>
           <SkillsTools />
-        )}
-        {view === "hardware" && <HardwareCheck theme={theme} />}
-        {view === "library" && <ModelLibrary profile={profile} />}
-        {view === "online" && <OnlineFallback />}
+        </div>
+        <div style={{ display: view === "hardware" ? "block" : "none", height: "100%", width: "100%" }}>
+          <HardwareCheck theme={theme} />
+        </div>
+        <div style={{ display: view === "library" ? "block" : "none", height: "100%", width: "100%" }}>
+          <ModelLibrary profile={profile} />
+        </div>
+        <div style={{ display: view === "online" ? "block" : "none", height: "100%", width: "100%" }}>
+          <OnlineFallback />
+        </div>
       </main>
       
       {showFileExplorer && (
