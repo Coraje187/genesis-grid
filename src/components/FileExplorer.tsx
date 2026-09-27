@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { open } from "@tauri-apps/api/shell";
@@ -82,7 +83,7 @@ function FileNode({ path, name }: { path: string, name: string }) {
   );
 }
 
-export default function FileExplorer({ onClose }: { onClose: () => void }) {
+function FileExplorer({ onClose }: { onClose: () => void }) {
   const [homeDir, setHomeDir] = useState<string>("");
   const [homeName, setHomeName] = useState<string>("HOME");
 
@@ -127,3 +128,5 @@ export default function FileExplorer({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
+
+export default React.memo(FileExplorer);

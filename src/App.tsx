@@ -1,3 +1,4 @@
+import React from 'react';
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { getVersion } from "@tauri-apps/api/app";
@@ -37,7 +38,11 @@ function KeepAlive({ viewName, currentView, children }: { viewName: string, curr
   }, [currentView]);
   if (!mounted) return null;
   const isChat = viewName === "chat";
+
+
   return (
+
+
     <div style={{ display: viewName === currentView ? (isChat ? "flex" : "block") : "none", height: "100%", width: "100%", flexDirection: isChat ? "column" : undefined, minHeight: isChat ? 0 : undefined }}>
       {children}
     </div>
@@ -68,6 +73,20 @@ export default function App() {
   function checkOllamaServer() {
     invoke<boolean>("ollama_server_running").then(setOllamaServerRunning).catch(() => setOllamaServerRunning(false));
   }
+
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      invoke<any[]>("list_chat_sessions").then((list) => {
+        if (list && list.length > 0) {
+          setActiveSessionId(list[0].id);
+        } else {
+          invoke<{ id: string }>("new_chat_session", { model: "genesis", projectId: null })
+            .then((s) => setActiveSessionId(s.id));
+        }
+      }).catch(console.error);
+    }
+  }, []);
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(console.error);
@@ -175,6 +194,36 @@ export default function App() {
     }
     setView("chat");
   }
+
+
+  const handleCloseExplorer = React.useCallback(() => setShowFileExplorer(false), []);
+
+  const memoAgents = React.useMemo(() => <AgentsView installedModels={installedModels} />, [installedModels]);
+  const memoKanban = React.useMemo(() => <KanbanBoard />, []);
+  const memoNotebook = React.useMemo(() => <Notebook />, []);
+  const memoBrowser = React.useMemo(() => <BrowserUseMode />, []);
+  const memoMuse = React.useMemo(() => <HermesMuse />, []);
+  const memoChats = React.useMemo(() => <ChatHistory installedModels={installedModels} onOpenSession={openSession} />, [installedModels]);
+  const memoMemory = React.useMemo(() => <MemoryCore />, []);
+  const memoSkills = React.useMemo(() => <SkillsTools />, []);
+  const memoHardware = React.useMemo(() => <HardwareCheck theme={theme} />, [theme]);
+  const memoLibrary = React.useMemo(() => <ModelLibrary profile={profile} />, [profile]);
+  const memoOnline = React.useMemo(() => <OnlineFallback />, []);
+  const memoChat = React.useMemo(() => (
+    activeSessionId ? (
+      <Chat 
+        sessionId={activeSessionId} 
+        installedModels={installedModels} 
+        theme={theme}
+        onNewChat={async () => {
+          const session = await invoke<{ id: string }>("new_chat_session", { model: "genesis", projectId: null });
+          setActiveSessionId(session.id);
+        }}
+      />
+    ) : (
+      <p style={{ color: "var(--ink-soft)" }}>Starting a new chat.</p>
+    )
+  ), [activeSessionId, installedModels, theme]);
 
   return (
     <div className="app-shell">
@@ -426,37 +475,23 @@ export default function App() {
             </svg>
           </button>
         )}
-        <KeepAlive viewName="agents" currentView={view}><AgentsView installedModels={installedModels} /></KeepAlive>
-        <KeepAlive viewName="kanban" currentView={view}><KanbanBoard /></KeepAlive>
-        <KeepAlive viewName="notebook" currentView={view}><Notebook /></KeepAlive>
-        <KeepAlive viewName="browser" currentView={view}><BrowserUseMode /></KeepAlive>
-        <KeepAlive viewName="muse" currentView={view}><HermesMuse /></KeepAlive>
-        <KeepAlive viewName="chat" currentView={view}>
-          {activeSessionId ? (
-            <Chat 
-              sessionId={activeSessionId} 
-              installedModels={installedModels} 
-              theme={theme}
-              onNewChat={async () => {
-                const session = await invoke<{ id: string }>("new_chat_session", { model: "genesis", projectId: null });
-                setActiveSessionId(session.id);
-              }}
-            />
-          ) : (
-            <p style={{ color: "var(--ink-soft)" }}>Starting a new chat.</p>
-          )}
-        </KeepAlive>
-        <KeepAlive viewName="chats" currentView={view}><ChatHistory installedModels={installedModels} onOpenSession={openSession} /></KeepAlive>
-        <KeepAlive viewName="memory" currentView={view}><MemoryCore /></KeepAlive>
-        <KeepAlive viewName="skills_tools" currentView={view}><SkillsTools /></KeepAlive>
-        <KeepAlive viewName="hardware" currentView={view}><HardwareCheck theme={theme} /></KeepAlive>
-        <KeepAlive viewName="library" currentView={view}><ModelLibrary profile={profile} /></KeepAlive>
-        <KeepAlive viewName="online" currentView={view}><OnlineFallback /></KeepAlive>
+        <KeepAlive viewName="agents" currentView={view}>{memoAgents}</KeepAlive>
+        <KeepAlive viewName="kanban" currentView={view}>{memoKanban}</KeepAlive>
+        <KeepAlive viewName="notebook" currentView={view}>{memoNotebook}</KeepAlive>
+        <KeepAlive viewName="browser" currentView={view}>{memoBrowser}</KeepAlive>
+        <KeepAlive viewName="muse" currentView={view}>{memoMuse}</KeepAlive>
+        <KeepAlive viewName="chat" currentView={view}>{memoChat}</KeepAlive>
+        <KeepAlive viewName="chats" currentView={view}>{memoChats}</KeepAlive>
+        <KeepAlive viewName="memory" currentView={view}>{memoMemory}</KeepAlive>
+        <KeepAlive viewName="skills_tools" currentView={view}>{memoSkills}</KeepAlive>
+        <KeepAlive viewName="hardware" currentView={view}>{memoHardware}</KeepAlive>
+        <KeepAlive viewName="library" currentView={view}>{memoLibrary}</KeepAlive>
+        <KeepAlive viewName="online" currentView={view}>{memoOnline}</KeepAlive>
       </main>
       
       {showFileExplorer && (
         <aside className="right-sidebar">
-          <FileExplorer onClose={() => setShowFileExplorer(false)} />
+          <FileExplorer onClose={handleCloseExplorer} />
         </aside>
       )}
     </div>
