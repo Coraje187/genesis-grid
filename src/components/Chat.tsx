@@ -1258,10 +1258,10 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
       bestModel = installedModels.find(m => m.toLowerCase().includes("hermes") || m.toLowerCase().includes("mixtral") || m.toLowerCase().includes("llama")) || model;
     }
     
-    const newHistory = [...messages, userMsg, { role: "assistant" as const, content: **[DYNAMIC SWARM]** Rapidly routing task to micro-agent \\\\\\\...\n\n }];
+    const newHistory = [...messages, userMsg, { role: "assistant" as const, content: `**[DYNAMIC SWARM]** Rapidly routing task to micro-agent \`${bestModel}\`...\n\n` }];
     setMessages(newHistory);
     
-    setActiveAgentStatus(🐝 Swarm: Handed off to [\] (Unloading immediately after));
+    setActiveAgentStatus(`🐝 Swarm: Handed off to [${bestModel}] (Unloading immediately after)`);
     
     await runInference(newHistory, userMsg, bestModel, undefined, 0);
   }
