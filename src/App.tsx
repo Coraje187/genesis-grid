@@ -380,7 +380,7 @@ export default function App() {
                 <div 
           className="brand-footer"
           onClick={() => invoke("open_url", { url: "https://genesisgridlabs.xyz/" })}
-          style={{ cursor: "pointer", textDecoration: "underline" }}
+          style={{ cursor: "pointer", textDecoration: "underline", paddingBottom: "20px" }}
         >
           © 2026 Genesis Grid Labs,
           <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textDecoration: "none" }}>
