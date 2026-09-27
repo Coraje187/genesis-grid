@@ -2483,11 +2483,15 @@ fn capture_screen() -> Result<String, String> {
     
     let image = monitor.capture_image().map_err(|e| format!("Capture failed: {}", e))?;
     
+    // Convert RGBA to RGB since JPEG does not support alpha channels
+    let dyn_img = image::DynamicImage::ImageRgba8(image);
+    let rgb_img = dyn_img.into_rgb8();
+
     // Encode it to jpeg quality 60
     let mut buffer = Vec::new();
     let mut cursor = Cursor::new(&mut buffer);
     let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 60);
-    encoder.encode(image.as_raw(), image.width(), image.height(), image::ColorType::Rgba8.into())
+    encoder.encode(rgb_img.as_raw(), rgb_img.width(), rgb_img.height(), image::ColorType::Rgb8.into())
         .map_err(|e| format!("Failed to encode image: {}", e))?;
         
     let b64 = STANDARD.encode(&buffer);
