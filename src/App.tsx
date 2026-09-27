@@ -29,6 +29,21 @@ interface InstallProgress {
   message: string;
 }
 
+
+function KeepAlive({ viewName, currentView, children }: { viewName: string, currentView: string, children: any }) {
+  const [mounted, setMounted] = useState(viewName === currentView);
+  useEffect(() => {
+    if (viewName === currentView) setMounted(true);
+  }, [currentView]);
+  if (!mounted) return null;
+  const isChat = viewName === "chat";
+  return (
+    <div style={{ display: viewName === currentView ? (isChat ? "flex" : "block") : "none", height: "100%", width: "100%", flexDirection: isChat ? "column" : undefined, minHeight: isChat ? 0 : undefined }}>
+      {children}
+    </div>
+  );
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [theme, setTheme] = useState<Theme>("dark");
@@ -411,22 +426,12 @@ export default function App() {
             </svg>
           </button>
         )}
-        <div style={{ display: view === "agents" ? "block" : "none", height: "100%", width: "100%" }}>
-          <AgentsView installedModels={installedModels} />
-        </div>
-        <div style={{ display: view === "kanban" ? "block" : "none", height: "100%", width: "100%" }}>
-          <KanbanBoard />
-        </div>
-        <div style={{ display: view === "notebook" ? "block" : "none", height: "100%", width: "100%" }}>
-          <Notebook />
-        </div>
-        <div style={{ display: view === "browser" ? "block" : "none", height: "100%", width: "100%" }}>
-          <BrowserUseMode />
-        </div>
-        <div style={{ display: view === "muse" ? "block" : "none", height: "100%", width: "100%" }}>
-          <HermesMuse />
-        </div>
-        <div style={{ display: view === "chat" ? "flex" : "none", flexDirection: "column", height: "100%", flex: 1, minHeight: 0 }}>
+        <KeepAlive viewName="agents" currentView={view}><AgentsView installedModels={installedModels} /></KeepAlive>
+        <KeepAlive viewName="kanban" currentView={view}><KanbanBoard /></KeepAlive>
+        <KeepAlive viewName="notebook" currentView={view}><Notebook /></KeepAlive>
+        <KeepAlive viewName="browser" currentView={view}><BrowserUseMode /></KeepAlive>
+        <KeepAlive viewName="muse" currentView={view}><HermesMuse /></KeepAlive>
+        <KeepAlive viewName="chat" currentView={view}>
           {activeSessionId ? (
             <Chat 
               sessionId={activeSessionId} 
@@ -440,25 +445,13 @@ export default function App() {
           ) : (
             <p style={{ color: "var(--ink-soft)" }}>Starting a new chat.</p>
           )}
-        </div>
-        <div style={{ display: view === "chats" ? "block" : "none", height: "100%", width: "100%" }}>
-          <ChatHistory installedModels={installedModels} onOpenSession={openSession} />
-        </div>
-        <div style={{ display: view === "memory" ? "block" : "none", height: "100%", width: "100%" }}>
-          <MemoryCore />
-        </div>
-        <div style={{ display: view === "skills_tools" ? "block" : "none", height: "100%", width: "100%" }}>
-          <SkillsTools />
-        </div>
-        <div style={{ display: view === "hardware" ? "block" : "none", height: "100%", width: "100%" }}>
-          <HardwareCheck theme={theme} />
-        </div>
-        <div style={{ display: view === "library" ? "block" : "none", height: "100%", width: "100%" }}>
-          <ModelLibrary profile={profile} />
-        </div>
-        <div style={{ display: view === "online" ? "block" : "none", height: "100%", width: "100%" }}>
-          <OnlineFallback />
-        </div>
+        </KeepAlive>
+        <KeepAlive viewName="chats" currentView={view}><ChatHistory installedModels={installedModels} onOpenSession={openSession} /></KeepAlive>
+        <KeepAlive viewName="memory" currentView={view}><MemoryCore /></KeepAlive>
+        <KeepAlive viewName="skills_tools" currentView={view}><SkillsTools /></KeepAlive>
+        <KeepAlive viewName="hardware" currentView={view}><HardwareCheck theme={theme} /></KeepAlive>
+        <KeepAlive viewName="library" currentView={view}><ModelLibrary profile={profile} /></KeepAlive>
+        <KeepAlive viewName="online" currentView={view}><OnlineFallback /></KeepAlive>
       </main>
       
       {showFileExplorer && (
