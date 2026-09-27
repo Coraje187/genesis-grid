@@ -2471,6 +2471,30 @@ async fn run_browser_task(
 }
 
 #[tauri::command]
+fn capture_screen() -> Result<String, String> {
+    use xcap::Monitor;
+    use std::io::Cursor;
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
+    let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
+    // Get primary or just the first monitor
+    let monitor = monitors.into_iter().next().ok_or("No monitors found")?;
+    
+    let image = monitor.capture_image().map_err(|e| format!("Capture failed: {}", e))?;
+    
+    // Encode it to jpeg quality 60
+    let mut buffer = Vec::new();
+    let mut cursor = Cursor::new(&mut buffer);
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 60);
+    encoder.encode(image.as_raw(), image.width(), image.height(), image::ColorType::Rgba8.into())
+        .map_err(|e| format!("Failed to encode image: {}", e))?;
+        
+    let b64 = STANDARD.encode(&buffer);
+    Ok(format!("data:image/jpeg;base64,{}", b64))
+}
+
+#[tauri::command]
 fn git_create_branch(branch_name: String) -> Result<String, String> {
     let output = Command::new("git")
         .args(["checkout", "-b", &branch_name])
@@ -2699,7 +2723,8 @@ fn main() {
             git_commit,
             run_tests_in_sandbox,
             index_omni_text,
-            query_omni_index
+            query_omni_index,
+            capture_screen
         ])
         .run(tauri::generate_context!())
         .expect("error while running Genesis Grid");

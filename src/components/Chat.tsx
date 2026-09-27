@@ -1315,6 +1315,24 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
     });
   }
 
+  async function captureGodsEye() {
+    try {
+      const b64 = await invoke<string>("capture_screen");
+      setAttachedFiles((prev) => [
+        ...prev,
+        {
+          name: "gods_eye_capture.jpg",
+          type: "image/jpeg",
+          content: "",
+          dataUrl: b64,
+        },
+      ]);
+    } catch (err) {
+      console.error("Gods Eye capture failed:", err);
+      alert("Failed to capture screen: " + String(err));
+    }
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
@@ -1892,6 +1910,14 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
           style={{ padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           📎
+        </button>
+        <button 
+          className="btn secondary" 
+          onClick={captureGodsEye}
+          title="God's Eye (Capture Screen)"
+          style={{ padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          👁️
         </button>
         <button 
           className={`btn secondary voice-rec-btn ${recording ? "recording" : ""}`}
