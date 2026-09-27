@@ -20,7 +20,7 @@ pub async fn generate_psychology_profile(workspace_dir: &str, model: &str) -> Re
     }
 
     let prompt = format!(
-        "You are the Git-Psychology Engine. Analyze the following recent git history of this project.\nIdentify the authors' coding styles, variable naming habits, framework preferences, and architectural quirks.\Write a concise, 5-bullet-point 'Psychology Profile' that can be injected into an AI's system prompt so that the AI perfectly mimics the original human authors. Do not include any fluff.\n\nGIT HISTORY:\n{}", log_snippet
+        "You are the Git-Psychology Engine. Analyze the following recent git history of this project.\nIdentify the authors' coding styles, variable naming habits, framework preferences, and architectural quirks.\nWrite a concise, 5-bullet-point 'Psychology Profile' that can be injected into an AI's system prompt so that the AI perfectly mimics the original human authors. Do not include any fluff.\n\nGIT HISTORY:\n{}", log_snippet
     );
 
     let client = reqwest::Client::new();

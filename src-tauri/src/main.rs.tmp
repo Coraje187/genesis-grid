@@ -1,12 +1,3 @@
-// Genesis Grid - Tauri backend
-// Handles: hardware detection, model tier recommendation, and talking to a
-// local Ollama install (list / pull / run models, check if Ollama exists).
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-mod git_psycho;
-
-use serde::{Deserialize, Serialize};
-use std::io::Write;
-use std::process::Command;
 use sysinfo::System;
 
 // ---------- Hardware detection ----------
@@ -2650,11 +2641,6 @@ async fn query_omni_index(query: String) -> Result<Vec<String>, String> {
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     let top: Vec<String> = scored.into_iter().take(3).map(|(_, text)| text).collect();
     Ok(top)
-}
-
-#[tauri::command]
-async fn analyze_git_psychology(workspace_dir: String) -> Result<String, String> {
-    git_psycho::generate_psychology_profile(&workspace_dir, "genesis").await
 }
 
 fn main() {
