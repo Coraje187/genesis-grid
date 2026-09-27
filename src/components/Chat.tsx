@@ -1191,6 +1191,55 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
     runInference(nextHistory, systemMsg);
   }
 
+  // --- Predictive Shadow Execution ---
+  const [shadowCache, setShadowCache] = useState<{draft: string, response: string} | null>(null);
+  const shadowTimerRef = useRef<any>(null);
+
+  useEffect(() => {
+    // Only predict if we are in normal chat mode (not Loop/WarRoom) and draft is substantial
+    if (isLoopMode || isWarRoomMode || draft.trim().length < 5) {
+      clearTimeout(shadowTimerRef.current);
+      return;
+    }
+
+    clearTimeout(shadowTimerRef.current);
+    shadowTimerRef.current = setTimeout(async () => {
+      const currentDraft = draft.trim();
+      if (shadowCache?.draft === currentDraft) return;
+
+      try {
+        console.log("Predicting shadow execution for:", currentDraft);
+        // We do a silent fetch to the local Ollama API to predict the response
+        const res = await fetch("http://127.0.0.1:11434/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gemma-2:9b", // Or whatever default the user has
+            prompt: currentDraft,
+            stream: false
+          })
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          const responseText = data.response || "";
+          
+          // Cache the predicted response!
+          setShadowCache({
+            draft: currentDraft,
+            response: responseText
+          });
+          console.log("Shadow execution cached successfully!");
+        }
+      } catch (err) {
+        console.error("Shadow execution failed:", err);
+      }
+    }, 3000); // 3 seconds of pause triggers prediction
+
+    return () => clearTimeout(shadowTimerRef.current);
+  }, [draft, isLoopMode, isWarRoomMode, shadowCache?.draft]);
+  // -----------------------------------
+
   async function handleSend() {
     if ((!draft.trim() && attachedFiles.length === 0) || !model || sending) return;
 
@@ -1215,9 +1264,20 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
     } else if (isWarRoomMode) {
       runWarRoomStep("coder", fullContent, attachedFiles, []);
     } else {
-      const withUser = [...messages, userMsg, { role: "assistant" as const, content: "" }];
-      setMessages(withUser);
-      runInference(withUser, userMsg);
+      if (shadowCache && shadowCache.draft === draft.trim()) {
+        console.log("SHADOW CACHE HIT! Instant response injected.");
+        const withUser = [...messages, userMsg, { role: "assistant" as const, content: shadowCache.response }];
+        setMessages(withUser);
+        setSending(false);
+        setShadowCache(null);
+        
+        // Also save session since inference isn't running to save it
+        invoke("save_chat_session", { id: sessionId, model, messages: withUser }).catch(() => {});
+      } else {
+        const withUser = [...messages, userMsg, { role: "assistant" as const, content: "" }];
+        setMessages(withUser);
+        runInference(withUser, userMsg);
+      }
     }
   }
 
