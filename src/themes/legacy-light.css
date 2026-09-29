@@ -1,0 +1,38 @@
+/* Genesis Grid — Light theme
+   Warm cream workspace, echoing Claude's own interface, since that look was
+   explicitly requested as this theme's reference point. */
+
+:root[data-theme="legacy-light"] {
+  --bg: #fafafa;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f0f0f2;
+  --ink: #1a1a1f;
+  --ink-soft: #6e6e77;
+  --border: rgba(0, 0, 0, 0.08);
+  --accent: #0088cc;
+  --accent-soft: #e0f2fe;
+  --accent-ink: #ffffff;
+  --success: #10b981;
+  --warn: #f59e0b;
+  --grid-line: rgba(0, 0, 0, 0.04);
+
+  --settings-tools: #0088cc;
+  --settings-mcp: #10b981;
+  --settings-skills: #6e6e77;
+  --settings-telegram: #f59e0b;
+
+  --font-display: "Outfit", -apple-system, sans-serif;
+  --font-body: "Inter", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02), 0 0 0 1px rgba(0, 0, 0, 0.02) inset;
+}
+
+:root[data-theme="legacy-light"] body {
+  background: var(--bg);
+  background-image: radial-gradient(var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}

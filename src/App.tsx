@@ -22,7 +22,7 @@ import BrowserUseMode from "./components/BrowserUseMode";
 import { SystemProfile } from "./lib/modelTiers";
 
 type View = "chat" | "chats" | "hardware" | "library" | "online" | "memory" | "skills_tools" | "agents" | "kanban" | "notebook" | "muse" | "browser";
-type Theme = "light" | "dark";
+type Theme = "light" | "dark" | "legacy-light" | "legacy-dark";
 
 interface InstallProgress {
   stage: "downloading" | "installing" | "done" | "error";
@@ -433,11 +433,12 @@ export default function App() {
         </button>
 
         <div className="theme-toggle" style={{ marginTop: 0 }}>
-          <button data-active={theme === "light"} onClick={() => setTheme("light")}>
-            Light
-          </button>
-          <button data-active={theme === "dark"} onClick={() => setTheme("dark")}>
-            Dark
+          <button onClick={() => {
+            const themes: Theme[] = ["dark", "light", "legacy-dark", "legacy-light"];
+            const nextIndex = (themes.indexOf(theme) + 1) % themes.length;
+            setTheme(themes[nextIndex]);
+          }}>
+            Theme: {theme === "dark" ? "Gold Dark" : theme === "light" ? "Gold Light" : theme === "legacy-dark" ? "Classic Dark" : "Classic Light"}
           </button>
         </div>
 

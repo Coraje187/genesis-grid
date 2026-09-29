@@ -4,6 +4,8 @@ import App from "./App";
 import "./themes/base.css";
 import "./themes/light.css";
 import "./themes/dark.css";
+import "./themes/legacy-dark.css";
+import "./themes/legacy-light.css";
 import "./i18n";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
