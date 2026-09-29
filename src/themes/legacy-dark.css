@@ -36,8 +36,8 @@
 
 :root[data-theme="legacy-dark"] body {
   background: var(--bg);
-  background-image: radial-gradient(var(--grid-line) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
   position: relative;
   z-index: 0;
 }

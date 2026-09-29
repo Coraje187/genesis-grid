@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { SystemProfile, TIER_COPY } from "../lib/modelTiers";
 
-export default function HardwareCheck({ theme }: { theme: "light" | "dark" }) {
+export default function HardwareCheck({ theme }: { theme: "light" | "dark" | "legacy-light" | "legacy-dark" }) {
   const [profile, setProfile] = useState<SystemProfile | null>(null);
   const [scanning, setScanning] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);

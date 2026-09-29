@@ -33,7 +33,7 @@ export default function Chat({
   sessionId: string;
   installedModels: string[];
   onNewChat: () => void;
-  theme: "light" | "dark";
+  theme: "light" | "dark" | "legacy-light" | "legacy-dark";
 }) {
   const options = ["genesis", ...installedModels, "openrouter", "openai", "gemini", "freellmapi"];
   const [model, setModel] = useState(options[0] ?? "");
