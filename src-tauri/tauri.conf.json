@@ -7,7 +7,7 @@
   },
   "package": {
     "productName": "Genesis Grid",
-    "version": "3.4.6"
+    "version": "3.4.7"
   },
   "tauri": {
     "allowlist": {
@@ -52,8 +52,7 @@
         "deb"
       ],
       "shortDescription": "A one-click local AI desktop",
-      "longDescription": "Genesis Grid is a one-click local AI desktop that manages Ollama models, features an autonomous micro-agent swarm, and provides a fully private workflow.",
-      "license": "MIT"
+      "longDescription": "Genesis Grid is a one-click local AI desktop that manages Ollama models, features an autonomous micro-agent swarm, and provides a fully private workflow."
     },
     "windows": [
       {
