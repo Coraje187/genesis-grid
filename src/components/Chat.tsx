@@ -1832,19 +1832,19 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
               background: m.role === "user"
                 ? "var(--accent)"
                 : (model === "genesis"
-                    ? (theme === "dark" 
+                    ? (theme.includes("dark") 
                         ? "linear-gradient(135deg, rgba(6, 7, 10, 0.95) 0%, rgba(25, 10, 45, 0.95) 100%)"
                         : "linear-gradient(135deg, #f2eee3 0%, #e6e0cc 100%)")
                     : "var(--bg-sunken)"),
               border: m.role === "assistant" && model === "genesis"
-                ? (theme === "dark" ? "1px solid #9d00ff" : "1px solid #d6ceb8")
+                ? (theme.includes("dark") ? "1px solid #9d00ff" : "1px solid #d6ceb8")
                 : "1px solid transparent",
               boxShadow: m.role === "assistant" && model === "genesis"
-                ? (theme === "dark" ? "0 0 10px rgba(157, 0, 255, 0.25)" : "0 2px 6px rgba(0, 0, 0, 0.05)")
+                ? (theme.includes("dark") ? "0 0 10px rgba(157, 0, 255, 0.25)" : "0 2px 6px rgba(0, 0, 0, 0.05)")
                 : "none",
               color: m.role === "user" 
                 ? "var(--accent-ink)" 
-                : (m.role === "assistant" && model === "genesis" && theme === "dark" 
+                : (m.role === "assistant" && model === "genesis" && theme.includes("dark") 
                     ? "#ffffff" 
                     : "var(--ink)"),
               padding: "10px 14px",

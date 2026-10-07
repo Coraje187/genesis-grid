@@ -33,7 +33,7 @@ export default function HardwareCheck({ theme }: { theme: "light" | "dark" | "le
       </p>
 
       <div className="card" style={{ position: "relative", overflow: "hidden" }}>
-        {theme === "dark" && scanning && <div className="scan-sweep" />}
+        {theme.includes("dark") && scanning && <div className="scan-sweep" />}
 
         {scanning || !profile ? (
           <p style={{ color: "var(--ink-soft)" }}>Scanning your machine…</p>
