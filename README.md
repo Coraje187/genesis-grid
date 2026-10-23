@@ -67,6 +67,26 @@ This is a **false positive** that occurs because the executable is not digitally
 - If your antivirus blocks it, you may need to temporarily whitelist the `.exe` file.
 All source code is fully transparent in this repository for your peace of mind.
 
+### Troubleshooting: Linux (Fedora / RHEL / openSUSE)
+
+If you are running **Fedora (39+)**, installing the `.rpm` via `dnf` or KDE Discover may report a missing `libwebkit2gtk-4.0` dependency.
+
+**Recommended Solution:**
+Use the **`.AppImage`** binary provided in the release instead of the `.rpm`. It runs self-contained without system package conflicts:
+```bash
+chmod +x genesis-grid*.AppImage
+./genesis-grid*.AppImage
+```
+*(Note: If your system doesn't have FUSE installed for AppImages: `sudo dnf install fuse`)*
+
+**Alternative (Installing the .rpm directly on Fedora):**
+Enable the community WebKit 4.0 package on Fedora before installing the RPM:
+```bash
+sudo dnf copr enable hemanth/webkit2gtk-4.0 -y
+sudo dnf install webkit2gtk4.0 -y
+sudo dnf install ./genesis-grid-*.x86_64.rpm
+```
+
 ### Troubleshooting: "App is damaged and can't be opened" (macOS)
 
 This is a very common macOS security error caused by Gatekeeper. When a Mac downloads an app from outside the Mac App Store (and it isn't properly signed or notarized by an Apple Developer), macOS flags it with a "quarantine" attribute and will often claim the app is "damaged" to prevent you from opening it.
