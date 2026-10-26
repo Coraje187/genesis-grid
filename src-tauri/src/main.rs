@@ -2917,7 +2917,50 @@ async fn analyze_git_psychology(workspace_dir: String) -> Result<String, String>
     git_psycho::generate_psychology_profile(&workspace_dir, "genesis").await
 }
 
+#[tauri::command]
+fn minimize_window(window: tauri::Window) {
+    let _ = window.minimize();
+}
+
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+
+        // Auto-fix for AppImage Wayland Mesa driver conflict (EGL_BAD_PARAMETER crash):
+        // Preload host system libwayland-client if running inside an AppImage on a Wayland desktop
+        if std::env::var("APPIMAGE").is_ok()
+            && std::env::var("WAYLAND_DISPLAY").is_ok()
+            && std::env::var("GENESIS_WAYLAND_PATCHED").is_err()
+        {
+            let candidate_paths = [
+                "/usr/lib/libwayland-client.so.0",
+                "/usr/lib64/libwayland-client.so.0",
+                "/usr/lib/x86_64-linux-gnu/libwayland-client.so.0",
+                "/usr/lib/libwayland-client.so",
+            ];
+
+            for path in candidate_paths {
+                if std::path::Path::new(path).exists() {
+                    if let Ok(current_exe) = std::env::current_exe() {
+                        let mut cmd = std::process::Command::new(current_exe);
+                        cmd.args(std::env::args().skip(1));
+                        cmd.env("LD_PRELOAD", path);
+                        cmd.env("GENESIS_WAYLAND_PATCHED", "1");
+                        cmd.env("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+                        let _ = cmd.exec();
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Prevent WebKitGTK DMA-BUF blank window rendering glitches on Wayland / compositors
+        if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     tauri::Builder::default()
         .manage(ChatController {
             abort: std::sync::atomic::AtomicBool::new(false),
@@ -3001,7 +3044,8 @@ fn main() {
             run_tests_in_sandbox,
             index_omni_text,
             query_omni_index,
-            capture_screen
+            capture_screen,
+            minimize_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running Genesis Grid");

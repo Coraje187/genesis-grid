@@ -88,7 +88,7 @@ function FileNode({ path, name }: { path: string, name: string }) {
   );
 }
 
-function FileExplorer({ onClose }: { onClose: () => void }) {
+function FileExplorer({ onClose, onMinimize }: { onClose: () => void; onMinimize?: () => void }) {
   const [homeDir, setHomeDir] = useState<string>("");
   const [homeName, setHomeName] = useState<string>("HOME");
 
@@ -120,12 +120,21 @@ function FileExplorer({ onClose }: { onClose: () => void }) {
           </svg>
           {homeName}
         </span>
-        <button className="sidebar-close-btn" onClick={onClose} title="Hide Explorer">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {onMinimize && (
+            <button className="sidebar-close-btn" onClick={onMinimize} title="Minimize Genesis Grid">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+          )}
+          <button className="sidebar-close-btn" onClick={onClose} title="Hide Explorer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
       </div>
       <div className="file-explorer-content">
         <FolderNode path={homeDir} name={homeName} initialOpen={true} />

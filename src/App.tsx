@@ -198,6 +198,22 @@ export default function App() {
 
   const handleCloseExplorer = React.useCallback(() => setShowFileExplorer(false), []);
 
+  const handleMinimize = React.useCallback(async () => {
+    try {
+      await invoke("minimize_window");
+    } catch (e) {
+      console.warn("Tauri minimize_window failed:", e);
+    }
+    // Fallback on Linux / Hyprland to send Genesis Grid to the special workspace without closing
+    try {
+      await invoke("run_command", {
+        command: "hyprctl dispatch movetoworkspacesilent special,class:Genesis-grid || hyprctl dispatch movetoworkspacesilent special,activewindow || true"
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const memoAgents = React.useMemo(() => <AgentsView installedModels={installedModels} />, [installedModels]);
   const memoKanban = React.useMemo(() => <KanbanBoard />, []);
   const memoNotebook = React.useMemo(() => <Notebook />, []);
@@ -228,11 +244,32 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '4px' }}>
           <div className="wordmark" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div className="status-dot" title="Core Online"></div>
             Genesis Grid
           </div>
+          <button
+            onClick={handleMinimize}
+            className="sidebar-close-btn"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--ink-soft)",
+              cursor: "pointer",
+              padding: "4px 8px",
+              borderRadius: "4px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "14px"
+            }}
+            title="Minimize Genesis Grid"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
         </div>
 
         <button 
@@ -455,27 +492,47 @@ export default function App() {
       </aside>
 
       <main className="main-view" style={{ position: "relative" }}>
-        {!showFileExplorer && (
+        <div style={{ position: "absolute", top: 16, right: 16, zIndex: 100, display: "flex", alignItems: "center", gap: "8px" }}>
           <button 
-            onClick={() => setShowFileExplorer(true)}
+            onClick={handleMinimize}
             className="sidebar-close-btn"
             style={{
-              position: "absolute",
-              top: 16,
-              right: 16,
               background: "var(--bg-sunken)",
               border: "1px solid var(--border)",
               padding: "6px",
-              zIndex: 100
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
-            title="Open Explorer"
+            title="Minimize Genesis Grid"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="15" y1="3" x2="15" y2="21"></line>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
           </button>
-        )}
+          {!showFileExplorer && (
+            <button 
+              onClick={() => setShowFileExplorer(true)}
+              className="sidebar-close-btn"
+              style={{
+                background: "var(--bg-sunken)",
+                border: "1px solid var(--border)",
+                padding: "6px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+              title="Open Explorer"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="15" y1="3" x2="15" y2="21"></line>
+              </svg>
+            </button>
+          )}
+        </div>
         <KeepAlive viewName="agents" currentView={view}>{memoAgents}</KeepAlive>
         <KeepAlive viewName="kanban" currentView={view}>{memoKanban}</KeepAlive>
         <KeepAlive viewName="notebook" currentView={view}>{memoNotebook}</KeepAlive>
@@ -492,7 +549,7 @@ export default function App() {
       
       {showFileExplorer && (
         <aside className="right-sidebar">
-          <FileExplorer onClose={handleCloseExplorer} />
+          <FileExplorer onClose={handleCloseExplorer} onMinimize={handleMinimize} />
         </aside>
       )}
     </div>
