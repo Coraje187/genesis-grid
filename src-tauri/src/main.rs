@@ -559,19 +559,20 @@ async fn chat_via_cloud(provider: String, model: String, message: String) -> Res
         if unified_key.trim().is_empty() {
             return Err("FreeLLMAPI unified key is missing. Please set it in Settings.".to_string());
         }
-        let model = if model.trim().is_empty() { 
-            if settings.default_model.trim().is_empty() {
-                "auto".to_string()
-            } else {
-                settings.default_model
-            }
+        let selected_model = if !model.trim().is_empty() { 
+            model.trim().to_string()
         } else { 
-            model 
+            settings.default_model.trim().to_string()
         };
-        let body = serde_json::json!({
-            "model": model,
-            "messages": [{"role": "user", "content": message}]
-        });
+
+        let mut body_map = serde_json::Map::new();
+        body_map.insert("messages".to_string(), serde_json::json!([{"role": "user", "content": message}]));
+
+        // FreeLLMAPI expects 'model' to be omitted for auto-routing. Passing literal "auto" causes 400 Bad Request.
+        if !selected_model.is_empty() && selected_model.to_lowercase() != "auto" {
+            body_map.insert("model".to_string(), serde_json::json!(selected_model));
+        }
+        let body = serde_json::Value::Object(body_map);
 
         let resp = client
             .post("http://localhost:3001/v1/chat/completions")
