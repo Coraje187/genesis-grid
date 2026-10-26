@@ -485,6 +485,23 @@ fn patch_freellmapi_sources(dir: &std::path::Path) {
             let _ = std::fs::write(&markdown_tsx_path, patched);
         }
     }
+
+    // Patch FreeLLMAPI proxy router so any upstream provider error (404, 401, 402, 502, etc.)
+    // automatically falls back to the next available model in the fallback chain.
+    for rel_path in ["server/src/routes/proxy.ts", "server/dist/routes/proxy.js"] {
+        let proxy_path = dir.join(rel_path);
+        if let Ok(content) = std::fs::read_to_string(&proxy_path) {
+            if content.contains("msg.includes('internal server error');")
+                && !content.contains("msg.includes('internal server error') || true;")
+            {
+                let patched = content.replace(
+                    "msg.includes('internal server error');",
+                    "msg.includes('internal server error') || true;",
+                );
+                let _ = std::fs::write(&proxy_path, patched);
+            }
+        }
+    }
 }
 
 fn ensure_freellmapi_env(dir: &std::path::Path) -> Result<(), String> {
@@ -655,6 +672,10 @@ async fn setup_freellmapi(window: tauri::Window) -> Result<String, String> {
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
 
+    let client = reqwest::Client::new();
+    let settings = load_freellmapi_settings();
+    sync_freellmapi_keys(&client, &settings).await;
+
     emit_progress(&window, "freellmapi-setup-progress", "done", 100, "FreeLLMAPI is running.");
     Ok("FreeLLMAPI installed and running at http://localhost:3001".into())
 }
@@ -669,15 +690,75 @@ fn open_freellmapi_dashboard() -> Result<(), String> {
 /// "no local model fits, use an online fallback" path). `model` lets the
 /// person pick which underlying provider/model FreeLLMAPI should route to
 /// (its own dashboard lists the available names); empty defaults to "auto".
+/// Ensures FreeLLMAPI has its built-in anonymous zero-key providers (`pollinations`,
+/// `llm7`, `kilo`) seeded in its SQLite `api_keys` table, as well as any OpenRouter
+/// or Gemini keys configured in Genesis Grid settings. Without at least one row in
+/// `api_keys`, FreeLLMAPI's router immediately throws 429 "All models exhausted".
+async fn sync_freellmapi_keys(client: &reqwest::Client, settings: &FreeLlmApiSettings) {
+    let mut existing_platforms = std::collections::HashSet::new();
+    if let Ok(resp) = client.get("http://127.0.0.1:3001/api/keys").send().await {
+        if let Ok(json) = resp.json::<serde_json::Value>().await {
+            if let Some(arr) = json.as_array() {
+                for item in arr {
+                    if item["enabled"].as_bool().unwrap_or(true) {
+                        if let Some(p) = item["platform"].as_str() {
+                            existing_platforms.insert(p.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        return;
+    }
+
+    let mut to_seed: Vec<(&str, String, &str)> = vec![
+        ("pollinations", "anonymous".to_string(), "Built-in Free (Pollinations)"),
+        ("llm7", "anonymous".to_string(), "Built-in Free (LLM7)"),
+        ("kilo", "anonymous".to_string(), "Built-in Free (Kilo)"),
+    ];
+
+    if let Some(ref or_key) = settings.openrouter_key {
+        if !or_key.trim().is_empty() {
+            to_seed.push(("openrouter", or_key.trim().to_string(), "Genesis Grid OpenRouter"));
+        }
+    }
+    if let Some(ref gem_key) = settings.gemini_key {
+        if !gem_key.trim().is_empty() {
+            to_seed.push(("google", gem_key.trim().to_string(), "Genesis Grid Gemini"));
+        }
+    }
+
+    for (platform, key, label) in to_seed {
+        if !existing_platforms.contains(platform) {
+            let payload = serde_json::json!({
+                "platform": platform,
+                "key": key,
+                "label": label,
+            });
+            let _ = client
+                .post("http://127.0.0.1:3001/api/keys")
+                .json(&payload)
+                .send()
+                .await;
+        }
+    }
+}
+
 #[tauri::command]
 async fn chat_via_cloud(provider: String, model: String, message: String) -> Result<String, String> {
     let settings = load_freellmapi_settings();
     
     if provider == "freellmapi" {
         // Auto-start FreeLLMAPI if it is already installed and built locally.
+        let dir = freellmapi_dir();
+        patch_freellmapi_sources(&dir);
         ensure_freellmapi_running();
 
         let client = reqwest::Client::new();
+        // Auto-seed anonymous providers (pollinations, llm7, kilo) and synced keys into FreeLLMAPI
+        sync_freellmapi_keys(&client, &settings).await;
+
         let unified_key = settings.unified_key.trim().to_string();
         let selected_model = if !model.trim().is_empty() { 
             model.trim().to_string()
@@ -685,49 +766,71 @@ async fn chat_via_cloud(provider: String, model: String, message: String) -> Res
             settings.default_model.trim().to_string()
         };
 
-        let mut body_map = serde_json::Map::new();
-        body_map.insert("messages".to_string(), serde_json::json!([{"role": "user", "content": message}]));
-
-        // FreeLLMAPI expects 'model' to be omitted for auto-routing. Passing literal "auto" causes 400 Bad Request.
         let lower_model = selected_model.to_lowercase();
-        if !selected_model.is_empty()
-            && lower_model != "auto"
-            && lower_model != "default"
-            && lower_model != "openrouter/auto"
-        {
-            body_map.insert("model".to_string(), serde_json::json!(selected_model));
+        let is_auto = selected_model.is_empty()
+            || lower_model == "auto"
+            || lower_model == "default"
+            || lower_model == "openrouter/auto";
+
+        // Candidate model list: if auto-routing is selected, try omitted model (None) first,
+        // then explicitly try reliable built-in anonymous models in case an older unpatched
+        // FreeLLMAPI server aborted on the first model in its chain.
+        let candidates: Vec<Option<String>> = if is_auto {
+            vec![
+                None,
+                Some("openai-fast".to_string()),
+                Some("gpt-oss-20b".to_string()),
+                Some("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo".to_string()),
+                Some("ministral-8b-2512".to_string()),
+                Some("codestral-latest".to_string()),
+            ]
+        } else {
+            vec![Some(selected_model)]
+        };
+
+        let mut last_status = reqwest::StatusCode::OK;
+        let mut last_text = String::new();
+
+        for candidate in candidates {
+            let mut body_map = serde_json::Map::new();
+            body_map.insert(
+                "messages".to_string(),
+                serde_json::json!([{"role": "user", "content": message}]),
+            );
+            if let Some(ref m) = candidate {
+                body_map.insert("model".to_string(), serde_json::json!(m));
+            }
+            let body = serde_json::Value::Object(body_map);
+
+            let mut req = client
+                .post("http://127.0.0.1:3001/v1/chat/completions")
+                .json(&body);
+            if !unified_key.is_empty() {
+                req = req.bearer_auth(&unified_key);
+            }
+
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| format!("Couldn't reach FreeLLMAPI at http://127.0.0.1:3001 (make sure FreeLLMAPI is set up and running): {e}"))?;
+
+            last_status = resp.status();
+            last_text = resp.text().await.map_err(|e| e.to_string())?;
+
+            if last_status.is_success() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&last_text) {
+                    if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
+                        return Ok(content.to_string());
+                    }
+                    if let Some(err_msg) = json["error"]["message"].as_str() {
+                        last_text = err_msg.to_string();
+                        continue;
+                    }
+                }
+            }
         }
-        let body = serde_json::Value::Object(body_map);
 
-        let mut req = client
-            .post("http://127.0.0.1:3001/v1/chat/completions")
-            .json(&body);
-        if !unified_key.is_empty() {
-            req = req.bearer_auth(unified_key);
-        }
-
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("Couldn't reach FreeLLMAPI at http://127.0.0.1:3001 (make sure FreeLLMAPI is set up and running): {e}"))?;
-
-        let status = resp.status();
-        let text = resp.text().await.map_err(|e| e.to_string())?;
-
-        if !status.is_success() {
-            return Err(format!("FreeLLMAPI returned {status}: {text}"));
-        }
-
-        let json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| format!("Couldn't parse FreeLLMAPI response ({e}): {text}"))?;
-
-        if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
-            return Ok(content.to_string());
-        }
-        if let Some(err_msg) = json["error"]["message"].as_str() {
-            return Err(format!("FreeLLMAPI error: {err_msg}"));
-        }
-        return Err(format!("Unexpected response shape from FreeLLMAPI: {text}"));
+        return Err(format!("FreeLLMAPI returned {last_status}: {last_text}"));
     }
 
     // Direct Cloud integrations
