@@ -2935,6 +2935,123 @@ fn minimize_window(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct UpdateInfo {
+    available: bool,
+    current_version: String,
+    latest_version: String,
+    release_name: String,
+    release_url: String,
+    download_url: Option<String>,
+}
+
+fn is_version_newer(remote: &str, current: &str) -> bool {
+    let parse_parts = |s: &str| -> Vec<u32> {
+        s.split('.')
+            .map(|p| p.chars().take_while(|c| c.is_ascii_digit()).collect::<String>())
+            .filter_map(|p| p.parse::<u32>().ok())
+            .collect()
+    };
+    let r_parts = parse_parts(remote);
+    let c_parts = parse_parts(current);
+    r_parts > c_parts
+}
+
+#[tauri::command]
+async fn check_for_updates() -> Result<UpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let client = reqwest::Client::builder()
+        .user_agent("genesis-grid")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let res = client
+        .get("https://api.github.com/repos/Coraje187/genesis-grid/releases/latest")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach update server: {}", e))?;
+
+    if !res.status().is_success() {
+        return Err(format!("GitHub API returned HTTP {}", res.status()));
+    }
+
+    let release: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let raw_tag = release["tag_name"].as_str().unwrap_or("");
+    let clean_tag = raw_tag.trim_start_matches('v');
+    let release_name = release["name"].as_str().unwrap_or(raw_tag).to_string();
+    let release_url = release["html_url"].as_str().unwrap_or("https://github.com/Coraje187/genesis-grid/releases").to_string();
+
+    let mut download_url = None;
+    if let Some(assets) = release["assets"].as_array() {
+        for asset in assets {
+            if let Some(name) = asset["name"].as_str() {
+                #[cfg(target_os = "linux")]
+                if name.ends_with(".AppImage") {
+                    download_url = asset["browser_download_url"].as_str().map(|s| s.to_string());
+                    break;
+                }
+                #[cfg(target_os = "windows")]
+                if name.ends_with(".exe") {
+                    download_url = asset["browser_download_url"].as_str().map(|s| s.to_string());
+                    break;
+                }
+                #[cfg(target_os = "macos")]
+                if name.ends_with(".dmg") {
+                    download_url = asset["browser_download_url"].as_str().map(|s| s.to_string());
+                    break;
+                }
+            }
+        }
+    }
+
+    let available = is_version_newer(clean_tag, &current_version);
+
+    Ok(UpdateInfo {
+        available,
+        current_version,
+        latest_version: clean_tag.to_string(),
+        release_name,
+        release_url,
+        download_url,
+    })
+}
+
+#[tauri::command]
+async fn install_app_update(download_url: String) -> Result<String, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let home = dirs::home_dir().ok_or("Cannot locate home directory")?;
+        let target_dir = home.join(".local/share/genesis-grid");
+        let target_appimage = target_dir.join("genesis-grid.AppImage");
+
+        let client = reqwest::Client::builder()
+            .user_agent("genesis-grid")
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let res = client.get(&download_url).send().await.map_err(|e| e.to_string())?;
+        if !res.status().is_success() {
+            return Err(format!("Download failed with status {}", res.status()));
+        }
+
+        let bytes = res.bytes().await.map_err(|e| e.to_string())?;
+        std::fs::write(&target_appimage, bytes).map_err(|e| e.to_string())?;
+
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&target_appimage).map_err(|e| e.to_string())?.permissions();
+        perms.set_mode(0o755);
+        let _ = std::fs::set_permissions(&target_appimage, perms);
+
+        Ok("Update downloaded successfully. Restart Genesis Grid to apply.".to_string())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = open::that(&download_url);
+        Ok("Opened download in browser.".to_string())
+    }
+}
+
 fn main() {
     #[cfg(target_family = "unix")]
     {
@@ -3145,7 +3262,9 @@ fn main() {
             index_omni_text,
             query_omni_index,
             capture_screen,
-            minimize_window
+            minimize_window,
+            check_for_updates,
+            install_app_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running Genesis Grid");

@@ -92,9 +92,9 @@ export default function App() {
     getVersion().then(setAppVersion).catch(console.error);
     async function runUpdateCheck() {
       try {
-        const { shouldUpdate, manifest } = await checkUpdate();
-        if (shouldUpdate) {
-          setUpdateAvailable(manifest);
+        const info = await invoke<{ available: boolean; latest_version: string; release_url: string; download_url?: string }>("check_for_updates");
+        if (info.available) {
+          setUpdateAvailable({ version: info.latest_version, downloadUrl: info.download_url, releaseUrl: info.release_url });
         }
       } catch (error) {
         console.error("Update check failed", error);
@@ -296,16 +296,20 @@ export default function App() {
               onClick={async () => {
                 setInstallingUpdate(true);
                 try {
-                  await installUpdate();
-                  await relaunch();
+                  if (updateAvailable.downloadUrl) {
+                    await invoke("install_app_update", { downloadUrl: updateAvailable.downloadUrl });
+                    alert("Update downloaded. Please restart Genesis Grid to apply.");
+                  } else {
+                    await invoke("open_url", { url: updateAvailable.releaseUrl || "https://github.com/Coraje187/genesis-grid/releases/latest" });
+                  }
                 } catch (e) {
                   console.error(e);
-                  setInstallingUpdate(false);
                 }
+                setInstallingUpdate(false);
               }}
               disabled={installingUpdate}
             >
-              {installingUpdate ? "Installing…" : "Install & Restart"}
+              {installingUpdate ? "Installing…" : "Install Update"}
             </button>
           </div>
         )}

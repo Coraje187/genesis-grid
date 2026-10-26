@@ -32,32 +32,37 @@ export default function SkillsTools() {
     setCheckingUpdate(true);
     setUpdateStatus("Checking for updates...");
     try {
-      const { shouldUpdate, manifest } = await checkUpdate();
-      if (shouldUpdate) {
-        setUpdateAvailable(manifest);
-        setUpdateStatus(`Update v${manifest?.version} available!`);
+      const info = await invoke<{ available: boolean; latest_version: string; current_version: string; release_url: string; download_url?: string }>("check_for_updates");
+      if (info.available) {
+        setUpdateAvailable(info);
+        setUpdateStatus(`Update v${info.latest_version} available!`);
       } else {
-        setUpdateStatus("You are on the latest version.");
-        setTimeout(() => setUpdateStatus(""), 3000);
+        setUpdateStatus(`You are on the latest version (v${info.current_version}).`);
+        setTimeout(() => setUpdateStatus(""), 4000);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
       setUpdateStatus("Update check failed.");
-      setTimeout(() => setUpdateStatus(""), 3000);
+      setTimeout(() => setUpdateStatus(""), 4000);
     }
     setCheckingUpdate(false);
   }
 
   async function handleInstallUpdate() {
+    if (!updateAvailable) return;
     setInstallingUpdate(true);
     setUpdateStatus("Downloading and installing...");
     try {
-      await installUpdate();
-      setUpdateStatus("Restarting app...");
-      await relaunch();
-    } catch (e) {
+      if (updateAvailable.download_url) {
+        const msg = await invoke<string>("install_app_update", { downloadUrl: updateAvailable.download_url });
+        setUpdateStatus(msg || "Update downloaded! Restart Genesis Grid to apply.");
+      } else {
+        await invoke("open_url", { url: updateAvailable.release_url || "https://github.com/Coraje187/genesis-grid/releases/latest" });
+        setUpdateStatus("Opened download page in browser.");
+      }
+    } catch (e: any) {
       console.error(e);
-      setUpdateStatus("Install failed.");
+      setUpdateStatus(`Install failed: ${e?.message || e}`);
       setInstallingUpdate(false);
     }
   }
