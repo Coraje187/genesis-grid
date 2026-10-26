@@ -456,60 +456,36 @@ export default function Chat({
 
   useEffect(() => {
     const loadSettings = () => {
-      const localKey = "";
-      const localModel = "";
-      const localOpenrouterKey = "";
-      const localOpenrouterModel = "";
-      const localOpenaiKey = "";
-      const localOpenaiModel = "";
-      const localGeminiKey = "";
-      const localGeminiModel = "";
-      const localCustomKey = "";
-      const localCustomUrl = "";
+      invoke<any>("load_freellmapi_settings")
+        .then((s) => {
+          if (s) {
+            const keyVal = (s.unified_key ?? s.unifiedKey) || "";
+            const modelVal = (s.default_model ?? s.defaultModel) || "";
+            const orKeyVal = (s.openrouter_key ?? s.openrouterKey) || "";
+            const orModelVal = (s.openrouter_model ?? s.openrouterModel) || "";
+            const oaKeyVal = (s.openai_key ?? s.openaiKey) || "";
+            const oaModelVal = (s.openai_model ?? s.openaiModel) || "";
+            const gemKeyVal = (s.gemini_key ?? s.geminiKey) || "";
+            const gemModelVal = (s.gemini_model ?? s.geminiModel) || "";
+            const custKeyVal = (s.custom_key ?? s.customKey) || "";
+            const custUrlVal = (s.custom_url ?? s.customUrl) || "";
 
-      setFreeLlmApiKey(localKey);
-      setFreeLlmApiModel(localModel);
-      setOpenrouterKey(localOpenrouterKey);
-      setOpenrouterModel(localOpenrouterModel);
-      setOpenaiKey(localOpenaiKey);
-      setOpenaiModel(localOpenaiModel);
-      setGeminiKey(localGeminiKey);
-      setGeminiModel(localGeminiModel);
-      setCustomKey(localCustomKey);
-      setCustomUrl(localCustomUrl);
+            setFreeLlmApiKey(keyVal);
+            setFreeLlmApiModel(modelVal);
+            setOpenrouterKey(orKeyVal);
+            setOpenrouterModel(orModelVal);
+            setOpenaiKey(oaKeyVal);
+            setOpenaiModel(oaModelVal);
+            setGeminiKey(gemKeyVal);
+            setGeminiModel(gemModelVal);
+            setCustomKey(custKeyVal);
+            setCustomUrl(custUrlVal);
+          }
+        })
+        .catch(() => {});
     };
 
     loadSettings();
-
-    invoke<any>("load_freellmapi_settings")
-      .then((s) => {
-        if (s) {
-          const keyVal = (s.unified_key ?? s.unifiedKey) || "";
-          const modelVal = (s.default_model ?? s.defaultModel) || "";
-          const orKeyVal = (s.openrouter_key ?? s.openrouterKey) || "";
-          const orModelVal = (s.openrouter_model ?? s.openrouterModel) || "";
-          const oaKeyVal = (s.openai_key ?? s.openaiKey) || "";
-          const oaModelVal = (s.openai_model ?? s.openaiModel) || "";
-          const gemKeyVal = (s.gemini_key ?? s.geminiKey) || "";
-          const gemModelVal = (s.gemini_model ?? s.geminiModel) || "";
-          const custKeyVal = (s.custom_key ?? s.customKey) || "";
-          const custUrlVal = (s.custom_url ?? s.customUrl) || "";
-
-          setFreeLlmApiKey(keyVal);
-          setFreeLlmApiModel(modelVal);
-          setOpenrouterKey(orKeyVal);
-          setOpenrouterModel(orModelVal);
-          setOpenaiKey(oaKeyVal);
-          setOpenaiModel(oaModelVal);
-          setGeminiKey(gemKeyVal);
-          setGeminiModel(gemModelVal);
-          setCustomKey(custKeyVal);
-          setCustomUrl(custUrlVal);
-        }
-      })
-      .catch(() => {
-        // Silently rely on localStorage if loading from Tauri fails
-      });
 
     window.addEventListener("storage", loadSettings);
     return () => {
@@ -623,8 +599,6 @@ export default function Chat({
           if (list.length > 0 && !openrouterModel) {
             const firstModelId = list[0].id;
             setOpenrouterModel(firstModelId);
-            // invoke save settings
-            persistFreeLlmApiSettings("openrouter", openrouterKey, firstModelId);
           }
         })
         .catch((err) => {
@@ -1587,7 +1561,7 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
                   value={freeLlmApiKey}
                   onChange={(e) => setFreeLlmApiKey(e.target.value)}
                   onBlur={() => persistFreeLlmApiSettings("freellmapi", freeLlmApiKey, freeLlmApiModel)}
-                  placeholder="freellmapi-… unified key (from dashboard, see Use online instead)"
+                  placeholder="freellmapi-… unified key (optional for local proxy)"
                   style={{
                     flex: 2,
                     padding: "8px 12px",
@@ -1602,7 +1576,7 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
                 <input
                   value={freeLlmApiModel}
                   onChange={(e) => setFreeLlmApiModel(e.target.value)}
-                  placeholder="model (e.g. auto)"
+                  placeholder="auto (leave blank or auto for smart routing)"
                   style={{
                     flex: 1,
                     padding: "8px 12px",

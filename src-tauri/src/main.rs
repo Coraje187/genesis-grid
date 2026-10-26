@@ -417,17 +417,148 @@ struct FreeLlmApiStatus {
     running: bool,
 }
 
+fn is_freellmapi_port_open() -> bool {
+    std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:3001".parse().unwrap(),
+        std::time::Duration::from_millis(300),
+    )
+    .is_ok()
+}
+
+/// Applies all TypeScript / workspace compatibility patches to the local
+/// FreeLLMAPI checkout so `npm run build` succeeds across all Node/TS/Windows
+/// versions even if the repo was cloned previously.
+fn patch_freellmapi_sources(dir: &std::path::Path) {
+    let shared_dir = dir.join("shared");
+    if shared_dir.exists() {
+        let shared_pkg_json = r#"{
+  "name": "@freellmapi/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./types.js",
+  "types": "./types.d.ts",
+  "exports": {
+    "./types.js": {
+      "types": "./types.d.ts",
+      "default": "./types.js"
+    },
+    "./types": {
+      "types": "./types.d.ts",
+      "default": "./types.js"
+    },
+    ".": {
+      "types": "./types.d.ts",
+      "default": "./types.js"
+    }
+  }
+}
+"#;
+        let _ = std::fs::write(shared_dir.join("package.json"), shared_pkg_json);
+
+        let types_ts = shared_dir.join("types.ts");
+        if let Ok(ts_content) = std::fs::read_to_string(&types_ts) {
+            let _ = std::fs::write(shared_dir.join("types.d.ts"), &ts_content);
+            let _ = std::fs::write(shared_dir.join("types.js"), "export {};\n");
+
+            // Also ensure node_modules/@freellmapi/shared has all required files
+            // in case npm workspace symlink/junction creation failed on Windows.
+            let nm_shared = dir.join("node_modules").join("@freellmapi").join("shared");
+            if dir.join("node_modules").exists() {
+                let _ = std::fs::create_dir_all(&nm_shared);
+                let _ = std::fs::write(nm_shared.join("package.json"), shared_pkg_json);
+                let _ = std::fs::write(nm_shared.join("types.ts"), &ts_content);
+                let _ = std::fs::write(nm_shared.join("types.d.ts"), &ts_content);
+                let _ = std::fs::write(nm_shared.join("types.js"), "export {};\n");
+            }
+        }
+    }
+
+    // Patch FreeLLMAPI client to fix React 18/19 children type error in markdown.tsx
+    let markdown_tsx_path = dir.join("client/src/components/markdown.tsx");
+    if let Ok(content) = std::fs::read_to_string(&markdown_tsx_path) {
+        if content.contains("(children as React.ReactElement)?.props?.children") {
+            let patched = content.replace(
+                "(children as React.ReactElement)?.props?.children",
+                "(children as any)?.props?.children",
+            );
+            let _ = std::fs::write(&markdown_tsx_path, patched);
+        }
+    }
+}
+
+fn ensure_freellmapi_env(dir: &std::path::Path) -> Result<(), String> {
+    let env_path = dir.join(".env");
+    let needs_key = match std::fs::read_to_string(&env_path) {
+        Ok(content) => !content.lines().any(|l| l.trim_start().starts_with("ENCRYPTION_KEY=")),
+        Err(_) => true,
+    };
+
+    if needs_key {
+        let example = dir.join(".env.example");
+        let mut base = if example.exists() {
+            std::fs::read_to_string(&example).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let keygen = Command::new("node")
+            .args(["-e", "console.log(require('crypto').randomBytes(32).toString('hex'))"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        let key = String::from_utf8_lossy(&keygen.stdout).trim().to_string();
+        if !base.is_empty() && !base.ends_with('\n') {
+            base.push('\n');
+        }
+        base.push_str(&format!("ENCRYPTION_KEY={key}\n"));
+        std::fs::write(&env_path, base).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn spawn_freellmapi_server(dir: &std::path::Path) -> Result<(), String> {
+    let mut cmd = Command::new("node");
+    cmd.arg("server/dist/index.js").current_dir(dir);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Couldn't start server: {e}"))
+}
+
+/// Ensures FreeLLMAPI is running on port 3001 if it has already been built.
+fn ensure_freellmapi_running() -> bool {
+    if is_freellmapi_port_open() {
+        return true;
+    }
+    let dir = freellmapi_dir();
+    if !dir.join("server/dist/index.js").exists() {
+        return false;
+    }
+    let _ = ensure_freellmapi_env(&dir);
+    if spawn_freellmapi_server(&dir).is_ok() {
+        for _ in 0..12 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            if is_freellmapi_port_open() {
+                return true;
+            }
+        }
+    }
+    is_freellmapi_port_open()
+}
+
 #[tauri::command]
 fn freellmapi_status() -> FreeLlmApiStatus {
     let node_installed = Command::new("node").arg("--version").output().is_ok();
     let git_installed = Command::new("git").arg("--version").output().is_ok();
     let cloned = freellmapi_dir().join("package.json").exists();
-    // A cheap local check — the proxy listens on :3001 when running.
-    let running = std::net::TcpStream::connect_timeout(
-        &"127.0.0.1:3001".parse().unwrap(),
-        std::time::Duration::from_millis(300),
-    )
-    .is_ok();
+    let running = if cloned && node_installed {
+        ensure_freellmapi_running()
+    } else {
+        is_freellmapi_port_open()
+    };
 
     FreeLlmApiStatus {
         node_installed,
@@ -453,11 +584,15 @@ async fn setup_freellmapi(window: tauri::Window) -> Result<String, String> {
     }
 
     if status.running {
+        emit_progress(&window, "freellmapi-setup-progress", "done", 100, "FreeLLMAPI is running.");
         return Ok("FreeLLMAPI is already running at http://localhost:3001".into());
     }
 
-    if !status.cloned {
+    if !status.cloned || !dir.join("server/package.json").exists() {
         emit_progress(&window, "freellmapi-setup-progress", "installing", 10, "Downloading FreeLLMAPI…");
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
         std::fs::create_dir_all(dir.parent().unwrap()).map_err(|e| e.to_string())?;
         let out = Command::new("git")
             .args(["clone", FREELLMAPI_REPO, dir.to_str().unwrap()])
@@ -470,29 +605,10 @@ async fn setup_freellmapi(window: tauri::Window) -> Result<String, String> {
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
-
-        // Patch FreeLLMAPI shared package.json to resolve module exports in TypeScript
-        let shared_pkg_path = dir.join("shared/package.json");
-        if let Ok(content) = std::fs::read_to_string(&shared_pkg_path) {
-            if !content.contains("\"exports\"") {
-                let patched = content.replace(
-                    "\"types\": \"./types.ts\"",
-                    "\"types\": \"./types.ts\",\n  \"exports\": {\n    \"./types.js\": \"./types.ts\",\n    \"./types\": \"./types.ts\",\n    \".\": \"./types.ts\"\n  }"
-                );
-                let _ = std::fs::write(&shared_pkg_path, patched);
-            }
-        }
-
-        // Patch FreeLLMAPI to fix React 18 children type error in markdown.tsx
-        let markdown_tsx_path = dir.join("client/src/components/markdown.tsx");
-        if let Ok(content) = std::fs::read_to_string(&markdown_tsx_path) {
-            let patched = content.replace(
-                "(children as React.ReactElement)?.props?.children",
-                "(children as any)?.props?.children"
-            );
-            let _ = std::fs::write(&markdown_tsx_path, patched);
-        }
     }
+
+    // Always patch before and after npm install so existing clones get fixed too.
+    patch_freellmapi_sources(&dir);
 
     emit_progress(&window, "freellmapi-setup-progress", "installing", 40, "Installing dependencies (npm install)…");
     let install = Command::new(npm_program())
@@ -508,26 +624,11 @@ async fn setup_freellmapi(window: tauri::Window) -> Result<String, String> {
         ));
     }
 
-    // Generate a local encryption key for at-rest provider-key storage if
-    // this is a first-time setup.
-    let env_path = dir.join(".env");
-    if !env_path.exists() {
-        emit_progress(&window, "freellmapi-setup-progress", "installing", 60, "Generating local encryption key…");
-        let example = dir.join(".env.example");
-        if example.exists() {
-            std::fs::copy(&example, &env_path).map_err(|e| e.to_string())?;
-        }
-        let keygen = Command::new("node")
-            .args(["-e", "console.log(require('crypto').randomBytes(32).toString('hex'))"])
-            .output()
-            .map_err(|e| e.to_string())?;
-        let key = String::from_utf8_lossy(&keygen.stdout).trim().to_string();
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&env_path)
-            .map_err(|e| e.to_string())?;
-        writeln!(file, "ENCRYPTION_KEY={key}").map_err(|e| e.to_string())?;
-    }
+    // Re-apply patches after npm install to guarantee node_modules/@freellmapi/shared has .d.ts & .js files.
+    patch_freellmapi_sources(&dir);
+
+    emit_progress(&window, "freellmapi-setup-progress", "installing", 60, "Configuring local encryption key…");
+    ensure_freellmapi_env(&dir)?;
 
     emit_progress(&window, "freellmapi-setup-progress", "installing", 80, "Building FreeLLMAPI…");
     let build = Command::new(npm_program())
@@ -545,11 +646,14 @@ async fn setup_freellmapi(window: tauri::Window) -> Result<String, String> {
     }
 
     emit_progress(&window, "freellmapi-setup-progress", "installing", 95, "Starting FreeLLMAPI on port 3001…");
-    Command::new("node")
-        .arg("server/dist/index.js")
-        .current_dir(&dir)
-        .spawn()
-        .map_err(|e| format!("Couldn't start server: {e}"))?;
+    spawn_freellmapi_server(&dir)?;
+
+    for _ in 0..12 {
+        if is_freellmapi_port_open() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
 
     emit_progress(&window, "freellmapi-setup-progress", "done", 100, "FreeLLMAPI is running.");
     Ok("FreeLLMAPI installed and running at http://localhost:3001".into())
@@ -570,11 +674,11 @@ async fn chat_via_cloud(provider: String, model: String, message: String) -> Res
     let settings = load_freellmapi_settings();
     
     if provider == "freellmapi" {
+        // Auto-start FreeLLMAPI if it is already installed and built locally.
+        ensure_freellmapi_running();
+
         let client = reqwest::Client::new();
-        let unified_key = settings.unified_key;
-        if unified_key.trim().is_empty() {
-            return Err("FreeLLMAPI unified key is missing. Please set it in Settings.".to_string());
-        }
+        let unified_key = settings.unified_key.trim().to_string();
         let selected_model = if !model.trim().is_empty() { 
             model.trim().to_string()
         } else { 
@@ -585,18 +689,27 @@ async fn chat_via_cloud(provider: String, model: String, message: String) -> Res
         body_map.insert("messages".to_string(), serde_json::json!([{"role": "user", "content": message}]));
 
         // FreeLLMAPI expects 'model' to be omitted for auto-routing. Passing literal "auto" causes 400 Bad Request.
-        if !selected_model.is_empty() && selected_model.to_lowercase() != "auto" {
+        let lower_model = selected_model.to_lowercase();
+        if !selected_model.is_empty()
+            && lower_model != "auto"
+            && lower_model != "default"
+            && lower_model != "openrouter/auto"
+        {
             body_map.insert("model".to_string(), serde_json::json!(selected_model));
         }
         let body = serde_json::Value::Object(body_map);
 
-        let resp = client
-            .post("http://localhost:3001/v1/chat/completions")
-            .bearer_auth(unified_key)
-            .json(&body)
+        let mut req = client
+            .post("http://127.0.0.1:3001/v1/chat/completions")
+            .json(&body);
+        if !unified_key.is_empty() {
+            req = req.bearer_auth(unified_key);
+        }
+
+        let resp = req
             .send()
             .await
-            .map_err(|e| format!("Couldn't reach FreeLLMAPI: {e}"))?;
+            .map_err(|e| format!("Couldn't reach FreeLLMAPI at http://127.0.0.1:3001 (make sure FreeLLMAPI is set up and running): {e}"))?;
 
         let status = resp.status();
         let text = resp.text().await.map_err(|e| e.to_string())?;
@@ -697,8 +810,16 @@ async fn chat_via_cloud(provider: String, model: String, message: String) -> Res
 }
 
 #[tauri::command]
-async fn chat_via_freellmapi(_unified_key: String, model: String, message: String) -> Result<String, String> {
-    let settings = load_freellmapi_settings();
+async fn chat_via_freellmapi(unified_key: Option<String>, model: String, message: String) -> Result<String, String> {
+    let mut settings = load_freellmapi_settings();
+    if let Some(ref k) = unified_key {
+        if !k.trim().is_empty() && settings.unified_key.trim().is_empty() {
+            settings.unified_key = k.trim().to_string();
+            if let Ok(json) = serde_json::to_string_pretty(&settings) {
+                let _ = std::fs::write(freellmapi_settings_file(), json);
+            }
+        }
+    }
     let mode = settings.mode.unwrap_or_else(|| "proxy".to_string());
     let provider = if mode == "direct" {
         settings.provider.unwrap_or_else(|| "openrouter".to_string())
@@ -821,20 +942,30 @@ fn save_freellmapi_settings(
     custom_key: Option<String>,
 ) -> Result<(), String> {
     std::fs::create_dir_all(genesis_data_dir()).map_err(|e| e.to_string())?;
+    let existing = load_freellmapi_settings();
+    let keep_str = |new_val: String, old_val: String| -> String {
+        if new_val.trim().is_empty() { old_val } else { new_val.trim().to_string() }
+    };
+    let keep_opt = |new_val: Option<String>, old_val: Option<String>| -> Option<String> {
+        match new_val {
+            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => old_val,
+        }
+    };
     let settings = FreeLlmApiSettings {
-        unified_key,
-        default_model,
-        mode,
-        provider,
-        direct_api_key,
-        custom_url,
-        openrouter_key,
-        openrouter_model,
-        openai_key,
-        openai_model,
-        gemini_key,
-        gemini_model,
-        custom_key,
+        unified_key: keep_str(unified_key, existing.unified_key),
+        default_model: keep_str(default_model, existing.default_model),
+        mode: keep_opt(mode, existing.mode),
+        provider: keep_opt(provider, existing.provider),
+        direct_api_key: keep_opt(direct_api_key, existing.direct_api_key),
+        custom_url: keep_opt(custom_url, existing.custom_url),
+        openrouter_key: keep_opt(openrouter_key, existing.openrouter_key),
+        openrouter_model: keep_opt(openrouter_model, existing.openrouter_model),
+        openai_key: keep_opt(openai_key, existing.openai_key),
+        openai_model: keep_opt(openai_model, existing.openai_model),
+        gemini_key: keep_opt(gemini_key, existing.gemini_key),
+        gemini_model: keep_opt(gemini_model, existing.gemini_model),
+        custom_key: keep_opt(custom_key, existing.custom_key),
     };
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(freellmapi_settings_file(), json).map_err(|e| e.to_string())

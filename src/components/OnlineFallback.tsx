@@ -272,9 +272,13 @@ export default function OnlineFallback() {
           </>
         ) : (
           <>
-            <p>Ready to set up. This downloads FreeLLMAPI and starts it locally.</p>
+            <p>
+              {status.cloned
+                ? "FreeLLMAPI is downloaded locally. Click below to build and start the server."
+                : "Ready to set up. This downloads FreeLLMAPI and starts it locally."}
+            </p>
             <button className="btn" onClick={handleSetup} disabled={settingUp}>
-              {settingUp ? "Setting up…" : "Set up FreeLLMAPI"}
+              {settingUp ? "Setting up…" : status.cloned ? "Start / Repair FreeLLMAPI" : "Set up FreeLLMAPI"}
             </button>
             {progress && (
               <div style={{ marginTop: 12, fontSize: 13, color: "var(--ink-soft)" }}>
@@ -313,7 +317,7 @@ export default function OnlineFallback() {
           <input
             value={unifiedKey}
             onChange={(e) => setUnifiedKey(e.target.value)}
-            placeholder="freellmapi-…"
+            placeholder="freellmapi-… (optional for local proxy)"
             style={{
               width: "100%",
               padding: "10px 12px",
@@ -328,7 +332,7 @@ export default function OnlineFallback() {
           <input
             value={defaultModel}
             onChange={(e) => setDefaultModel(e.target.value)}
-            placeholder="model (e.g. auto, or a name from the dashboard)"
+            placeholder="auto (leave blank or auto for smart routing, or enter a model ID)"
             style={{
               width: "100%",
               padding: "10px 12px",
@@ -371,7 +375,7 @@ export default function OnlineFallback() {
                 color: "var(--ink)",
               }}
             />
-            <button className="btn" onClick={handleTest} disabled={testing || !unifiedKey}>
+            <button className="btn" onClick={handleTest} disabled={testing}>
               {testing ? "Sending…" : "Send"}
             </button>
           </div>
