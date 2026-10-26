@@ -204,14 +204,6 @@ export default function App() {
     } catch (e) {
       console.warn("Tauri minimize_window failed:", e);
     }
-    // Fallback on Linux / Hyprland to send Genesis Grid to the special workspace without closing
-    try {
-      await invoke("run_command", {
-        command: "hyprctl dispatch movetoworkspacesilent special,class:Genesis-grid || hyprctl dispatch movetoworkspacesilent special,activewindow || true"
-      });
-    } catch {
-      // ignore
-    }
   }, []);
 
   const memoAgents = React.useMemo(() => <AgentsView installedModels={installedModels} />, [installedModels]);

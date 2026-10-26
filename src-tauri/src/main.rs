@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::process::Command;
 use sysinfo::System;
+use tauri::{CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem};
 
 // ---------- Hardware detection ----------
 
@@ -2918,11 +2919,36 @@ async fn analyze_git_psychology(workspace_dir: String) -> Result<String, String>
 }
 
 #[tauri::command]
-fn minimize_window(window: tauri::Window) {
+fn minimize_window(window: tauri::Window) -> Result<(), String> {
+    // 1. Hide the window to minimize into system tray
+    let _ = window.hide();
+
+    // 2. Also attempt standard minimize
     let _ = window.minimize();
+
+    // 3. On Hyprland, notify the user so they know it is sitting in the tray
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+        let _ = std::process::Command::new("hyprctl")
+            .args(["notify", "1", "3000", "rgb(6699ff)", "Genesis Grid minimized to system tray"])
+            .spawn();
+    }
+    Ok(())
 }
 
 fn main() {
+    #[cfg(target_family = "unix")]
+    {
+        // Single instance check: if an existing Genesis Grid process is running,
+        // send it "show" to unhide and focus its window, then exit this process.
+        let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
+        let sock_path = format!("/tmp/genesis-grid-{}.sock", user);
+        if let Ok(mut stream) = std::os::unix::net::UnixStream::connect(&sock_path) {
+            use std::io::Write;
+            let _ = stream.write_all(b"show\n");
+            return;
+        }
+    }
+
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::process::CommandExt;
@@ -2961,7 +2987,81 @@ fn main() {
         }
     }
 
+    let show_item = CustomMenuItem::new("show".to_string(), "Show Genesis Grid");
+    let hide_item = CustomMenuItem::new("hide".to_string(), "Minimize to Tray");
+    let quit_item = CustomMenuItem::new("quit".to_string(), "Quit Genesis Grid");
+    let tray_menu = SystemTrayMenu::new()
+        .add_item(show_item)
+        .add_item(hide_item)
+        .add_native_item(SystemTrayMenuItem::Separator)
+        .add_item(quit_item);
+    let system_tray = SystemTray::new().with_menu(tray_menu);
+
     tauri::Builder::default()
+        .system_tray(system_tray)
+        .on_system_tray_event(|app, event| match event {
+            SystemTrayEvent::LeftClick { .. } => {
+                if let Some(window) = app.get_window("main") {
+                    let is_visible = window.is_visible().unwrap_or(false);
+                    if is_visible {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+            SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
+                "show" => {
+                    if let Some(window) = app.get_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                "hide" => {
+                    if let Some(window) = app.get_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+                "quit" => {
+                    std::process::exit(0);
+                }
+                _ => {}
+            },
+            _ => {}
+        })
+        .setup(|app| {
+            #[cfg(target_family = "unix")]
+            {
+                let app_handle = app.handle();
+                let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
+                let sock_path = format!("/tmp/genesis-grid-{}.sock", user);
+                let _ = std::fs::remove_file(&sock_path);
+                if let Ok(listener) = std::os::unix::net::UnixListener::bind(&sock_path) {
+                    std::thread::spawn(move || {
+                        use std::io::Read;
+                        for stream in listener.incoming() {
+                            if let Ok(mut s) = stream {
+                                let mut buf = [0u8; 32];
+                                if let Ok(n) = s.read(&mut buf) {
+                                    let cmd = String::from_utf8_lossy(&buf[..n]);
+                                    if cmd.trim() == "show" {
+                                        let handle = app_handle.clone();
+                                        let _ = app_handle.run_on_main_thread(move || {
+                                            if let Some(w) = handle.get_window("main") {
+                                                let _ = w.show();
+                                                let _ = w.set_focus();
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+            Ok(())
+        })
         .manage(ChatController {
             abort: std::sync::atomic::AtomicBool::new(false),
         })

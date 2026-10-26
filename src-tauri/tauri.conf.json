@@ -54,8 +54,13 @@
       "shortDescription": "A one-click local AI desktop",
       "longDescription": "Genesis Grid is a one-click local AI desktop that manages Ollama models, features an autonomous micro-agent swarm, and provides a fully private workflow."
     },
+    "systemTray": {
+      "iconPath": "icons/32x32.png",
+      "iconAsTemplate": true
+    },
     "windows": [
       {
+        "label": "main",
         "title": "Genesis Grid",
         "width": 1180,
         "height": 760,
