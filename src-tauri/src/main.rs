@@ -452,6 +452,10 @@ async fn setup_freellmapi(window: tauri::Window) -> Result<String, String> {
         );
     }
 
+    if status.running {
+        return Ok("FreeLLMAPI is already running at http://localhost:3001".into());
+    }
+
     if !status.cloned {
         emit_progress(&window, "freellmapi-setup-progress", "installing", 10, "Downloading FreeLLMAPI…");
         std::fs::create_dir_all(dir.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -465,6 +469,18 @@ async fn setup_freellmapi(window: tauri::Window) -> Result<String, String> {
                 String::from_utf8_lossy(&out.stdout),
                 String::from_utf8_lossy(&out.stderr)
             ));
+        }
+
+        // Patch FreeLLMAPI shared package.json to resolve module exports in TypeScript
+        let shared_pkg_path = dir.join("shared/package.json");
+        if let Ok(content) = std::fs::read_to_string(&shared_pkg_path) {
+            if !content.contains("\"exports\"") {
+                let patched = content.replace(
+                    "\"types\": \"./types.ts\"",
+                    "\"types\": \"./types.ts\",\n  \"exports\": {\n    \"./types.js\": \"./types.ts\",\n    \"./types\": \"./types.ts\",\n    \".\": \"./types.ts\"\n  }"
+                );
+                let _ = std::fs::write(&shared_pkg_path, patched);
+            }
         }
 
         // Patch FreeLLMAPI to fix React 18 children type error in markdown.tsx
