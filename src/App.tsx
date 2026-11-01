@@ -2,7 +2,7 @@ import React from 'react';
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { getVersion } from "@tauri-apps/api/app";
-import { checkUpdate, installUpdate } from "@tauri-apps/api/updater";
+import { checkUpdate, installUpdate, onUpdaterEvent } from "@tauri-apps/api/updater";
 import { relaunch } from "@tauri-apps/api/process";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
@@ -64,6 +64,7 @@ export default function App() {
   const [appVersion, setAppVersion] = useState<string>("");
   const [updateAvailable, setUpdateAvailable] = useState<any>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [showFileExplorer, setShowFileExplorer] = useState(true);
 
   function refreshInstalledModels() {
@@ -289,12 +290,23 @@ export default function App() {
 
         {updateAvailable && (
           <div className="card" style={{ padding: 12, fontSize: 12, background: "var(--accent)", color: "#fff", border: "none" }}>
-            Update v{updateAvailable.version} is available!
+            <div style={{ fontWeight: "bold" }}>Update v{updateAvailable.version} is available!</div>
+            {updateAvailable.body && (
+              <div style={{ fontSize: 11, opacity: 0.9, margin: "6px 0", maxHeight: 60, overflowY: "auto", background: "rgba(0,0,0,0.15)", padding: 6, borderRadius: 4 }}>
+                {updateAvailable.body}
+              </div>
+            )}
+            {updateError && (
+              <div style={{ fontSize: 11, color: "#ffdddd", marginTop: 4 }}>
+                ⚠️ {updateError}
+              </div>
+            )}
             <button
               className="btn"
-              style={{ marginTop: 8, width: "100%", background: "#fff", color: "var(--accent)" }}
+              style={{ marginTop: 8, width: "100%", background: "#fff", color: "var(--accent)", fontWeight: "bold" }}
               onClick={async () => {
                 setInstallingUpdate(true);
+                setUpdateError(null);
                 try {
                   if (updateAvailable.downloadUrl) {
                     await invoke("install_app_update", { downloadUrl: updateAvailable.downloadUrl });
@@ -302,14 +314,15 @@ export default function App() {
                   } else {
                     await invoke("open_url", { url: updateAvailable.releaseUrl || "https://github.com/Coraje187/genesis-grid/releases/latest" });
                   }
-                } catch (e) {
+                } catch (e: any) {
                   console.error(e);
+                  setUpdateError(e?.message || String(e));
                 }
                 setInstallingUpdate(false);
               }}
               disabled={installingUpdate}
             >
-              {installingUpdate ? "Installing…" : "Install Update"}
+              {installingUpdate ? "Downloading & Installing…" : "Install Update"}
             </button>
           </div>
         )}

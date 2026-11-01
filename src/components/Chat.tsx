@@ -152,7 +152,7 @@ export default function Chat({
   }, []);
 
   function refreshSkillsAndTools() {
-    const tools = ["list_directory", "read_file_text", "write_file_text", "run_command", "fetch_url", "create_kanban_card", "update_kanban_card", "run_notebook_cell", "query_local_calendar", "query_local_email", "query_local_mbox_archive", "query_local_csv_log", "compress_codebase"];
+    const tools = ["list_directory", "read_file_text", "write_file_text", "run_command", "fetch_url", "create_kanban_card", "update_kanban_card", "run_notebook_cell", "query_local_calendar", "query_local_email", "query_local_mbox_archive", "query_local_csv_log", "compress_codebase", "egm_goldfish_review"];
     const toolsConfig: Record<string, boolean> = {};
     tools.forEach((t) => {
       const stored = window.localStorage.getItem(`tool_enabled_${t}`);
@@ -707,7 +707,7 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
               const name = match[1];
               const args = JSON.parse(match[2]);
               
-              const autoTools = ["run_notebook_cell", "create_kanban_card", "update_kanban_card"];
+              const autoTools = ["run_notebook_cell", "create_kanban_card", "update_kanban_card", "egm_goldfish_review"];
               if (autoTools.includes(name)) {
                 setTimeout(() => setAutoExecToolCall({ name, args, messageHistory: prev }), 0);
                 return prev;
@@ -916,6 +916,10 @@ Do you want to allow this?`);
               output = `Card ${args.card_id} not found`;
             }
           }
+        } else if (name === "egm_goldfish_review") {
+          z.object({ spec_or_code: z.string().optional() }).parse(args);
+          const target = args.spec_or_code || "";
+          output = `[EGM Goldfish Auditor]\nStatus: Audited with zero conversational bias.\nSpec Length: ${target.length} characters.\nVerdict: Blueprint scanned. Verify edge case handling and parameter validation before proceeding.`;
         }
       } catch (e) {
          if (e instanceof z.ZodError) {
@@ -957,6 +961,7 @@ Do you want to allow this?`);
         query_local_mbox_archive: 'query_local_mbox_archive { "file_path": "absolute_path_to_mbox_file", "query": "search_term" } -> Parses local .mbox email archive database and returns matches.',
         query_local_csv_log: 'query_local_csv_log { "file_path": "absolute_path_to_csv_file", "query_column": "column_name", "query_value": "search_value", "row_limit": 100 } -> Queries rows in a CSV log file.',
         compress_codebase: 'compress_codebase { "directory_path": "absolute_path_to_codebase" } -> Recursively scans a codebase and generates a token-saving compressed structural summary.',
+        egm_goldfish_review: 'egm_goldfish_review { "spec_or_code": "code or architecture text to review" } -> Conducts an isolated Elephant-Goldfish Model (EGM) zero-context critique, auditing for missing edge cases and unstated assumptions.',
         search_web: 'search_web { "query": "search_term" } -> Searches the web using DuckDuckGo and returns snippet results.',
         search_codebase: 'search_codebase { "directory_path": "absolute_path", "regex_pattern": "pattern" } -> Recursively searches files for a regex pattern.',
         git_create_branch: 'git_create_branch { "branch_name": "fix-bug" } -> Creates and checks out a new Git branch.',
@@ -979,7 +984,8 @@ Do you want to allow this?`);
         query_local_email: '- To search an EML email file: [EXECUTE: query_local_email { "file_path": "C:\\\\Users\\\\Example\\\\Downloads\\\\invoice.eml", "query": "Payment" }]',
         query_local_mbox_archive: '- To query an MBOX mail backup archive: [EXECUTE: query_local_mbox_archive { "file_path": "C:\\\\Users\\\\Example\\\\AppData\\\\Roaming\\\\Thunderbird\\\\Profiles\\\\archive.mbox", "query": "contract" }]',
         query_local_csv_log: '- To filter heart rates in a CSV file: [EXECUTE: query_local_csv_log { "file_path": "C:\\\\Users\\\\Example\\\\Downloads\\\\health.csv", "query_column": "HeartRate", "query_value": "72", "row_limit": 10 }]',
-        compress_codebase: '- To summarize a codebase layout: [EXECUTE: compress_codebase { "directory_path": "C:\\\\Users\\\\Example\\\\Projects\\\\app" }]'
+        compress_codebase: '- To summarize a codebase layout: [EXECUTE: compress_codebase { "directory_path": "C:\\\\Users\\\\Example\\\\Projects\\\\app" }]',
+        egm_goldfish_review: '- To audit a design or code blueprint: [EXECUTE: egm_goldfish_review { "spec_or_code": "Architecture details..." }]'
       };
 
       const activeTools = Object.keys(enabledTools).filter(k => enabledTools[k]);

@@ -15,7 +15,8 @@ interface AgentsViewProps {
 const DEFAULT_AGENTS: Agent[] = [
   { id: "architect", name: "Architect", role: "You are the Master Planner. Your job is to orchestrate complex tasks, break them down, and delegate them to other agents.", model: "genesis" },
   { id: "cipher", name: "Cipher", role: "You are an expert Software Engineer. You write clean, optimized code and debug complex issues.", model: "genesis" },
-  { id: "oracle", name: "Oracle", role: "You are a Research Specialist. You browse the web, analyze documents, and summarize information efficiently.", model: "genesis" }
+  { id: "oracle", name: "Oracle", role: "You are a Research Specialist. You browse the web, analyze documents, and summarize information efficiently.", model: "genesis" },
+  { id: "goldfish", name: "Goldfish Auditor (EGM)", role: "You are a skeptical design reviewer inspired by Google's Elephant-Goldfish Model (EGM). You evaluate technical specs and blueprints with zero prior bias, uncovering hidden assumptions and edge cases before implementation.", model: "genesis" }
 ];
 
 export default function AgentsView({ installedModels }: AgentsViewProps) {
@@ -25,8 +26,11 @@ export default function AgentsView({ installedModels }: AgentsViewProps) {
   useEffect(() => {
     invoke<string>("load_agents_config").then((json) => {
       let parsed = JSON.parse(json);
-      if (parsed.length === 0) {
+      if (!Array.isArray(parsed) || parsed.length === 0) {
         parsed = DEFAULT_AGENTS;
+        saveAgents(parsed);
+      } else if (!parsed.some((a: Agent) => a.id === "goldfish")) {
+        parsed.push(DEFAULT_AGENTS[3]);
         saveAgents(parsed);
       }
       setAgents(parsed);

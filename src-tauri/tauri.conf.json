@@ -7,7 +7,7 @@
   },
   "package": {
     "productName": "Genesis Grid",
-    "version": "3.4.11"
+    "version": "3.5.0"
   },
   "tauri": {
     "allowlist": {
@@ -30,12 +30,19 @@
       },
       "dialog": {
         "all": true
+      },
+      "process": {
+        "all": true,
+        "relaunch": true
+      },
+      "app": {
+        "all": true
       }
     },
     "bundle": {
       "active": true,
       "identifier": "com.genesisgridlabs.app",
-      "copyright": "\u00a9 2026 Genesis Grid Labs\u2122. All Rights Reserved.",
+      "copyright": "© 2026 Genesis Grid Labs™. All Rights Reserved.",
       "publisher": "Genesis Grid Labs",
       "icon": [
         "icons/32x32.png",

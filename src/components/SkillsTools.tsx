@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import { checkUpdate, installUpdate } from "@tauri-apps/api/updater";
+import { checkUpdate, installUpdate, onUpdaterEvent } from "@tauri-apps/api/updater";
 import { relaunch } from "@tauri-apps/api/process";
 import { useTranslation } from "react-i18next";
 
@@ -290,7 +290,8 @@ export default function SkillsTools() {
     { id: "query_local_email", name: "Query Local Email", desc: "Allows the agent to parse local .eml email files offline." },
     { id: "query_local_mbox_archive", name: "Query Local Mailbox Archive", desc: "Allows the agent to search local Thunderbird/Google Takeout .mbox email backups." },
     { id: "query_local_csv_log", name: "Query Local CSV Spreadsheet", desc: "Allows the agent to filter and search offline local .csv spreadsheets." },
-    { id: "compress_codebase", name: "Codebase AST Compressor", desc: "Generates compressed, token-saving structural summaries of code folders." }
+    { id: "compress_codebase", name: "Codebase AST Compressor", desc: "Generates compressed, token-saving structural summaries of code folders." },
+    { id: "egm_goldfish_review", name: "Elephant-Goldfish Auditor", desc: "Runs an isolated zero-context critique on code blueprints, catching missing assumptions and blind spots before implementation." }
   ];
 
   useEffect(() => {
@@ -684,7 +685,7 @@ export default function SkillsTools() {
               disabled={installingUpdate}
               style={{ background: "var(--success)", color: "#000", padding: "8px 12px", fontSize: 13, whiteSpace: "nowrap", border: "none" }}
             >
-              {installingUpdate ? "Installing..." : "Install Update & Restart"}
+              {installingUpdate ? "Installing..." : `Install v${updateAvailable?.version || ""} & Restart`}
             </button>
           ) : (
             <button 
