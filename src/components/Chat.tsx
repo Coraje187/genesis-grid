@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { open as openShell } from "@tauri-apps/api/shell";
 import { sanitizeRetrievedContext, DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL } from "../lib/sanitizer";
+import { SLASH_COMMANDS, estimateSessionTokens, estimateTokens, exportChatJson, exportChatMarkdown } from "../lib/chatUtils";
+import ModelCompareModal from "./ModelCompareModal";
 import { z } from "zod";
 
 interface ChatMessage {
@@ -62,6 +64,10 @@ export default function Chat({
   const [openrouterFreeModels, setOpenrouterFreeModels] = useState<any[]>([]);
   const [loadingOpenrouterModels, setLoadingOpenrouterModels] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [lastTokPerSec, setLastTokPerSec] = useState<number | null>(null);
+  const streamStartRef = useRef<number | null>(null);
+  const streamCharsRef = useRef<number>(0);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; content: string; type: string; dataUrl?: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [wikiContent, setWikiContent] = useState("");
@@ -686,6 +692,11 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
 
   useEffect(() => {
     const unToken = listen<ChatToken>("chat-token", (event) => {
+      if (streamStartRef.current === null) {
+        streamStartRef.current = performance.now();
+        streamCharsRef.current = 0;
+      }
+      streamCharsRef.current += event.payload.content.length;
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
@@ -696,6 +707,13 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
       });
     });
     const unDone = listen("chat-done", () => {
+      if (streamStartRef.current !== null && streamCharsRef.current > 0) {
+        const elapsedSec = Math.max(0.05, (performance.now() - streamStartRef.current) / 1000);
+        const estTokens = estimateTokens("x".repeat(streamCharsRef.current));
+        setLastTokPerSec(Math.round((estTokens / elapsedSec) * 10) / 10);
+      }
+      streamStartRef.current = null;
+      streamCharsRef.current = 0;
       setMessages((prev) => {
         invoke("save_chat_session", { id: sessionId, model, messages: prev }).catch(() => {});
         const lastAssistant = prev[prev.length - 1];
@@ -1246,7 +1264,52 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
     await runInference(newHistory, userMsg, bestModel, undefined, 0);
   }
 
+  function executeSlashCommand(raw: string): boolean {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith("/")) return false;
+    const [cmd, ...rest] = trimmed.split(/\s+/);
+    const arg = rest.join(" ").trim();
+
+    if (cmd === "/clear") {
+      setMessages([]);
+      setDraft("");
+      setLastTokPerSec(null);
+      invoke("save_chat_session", { id: sessionId, model, messages: [] }).catch(() => {});
+      return true;
+    }
+    if (cmd === "/export") {
+      if (arg.toLowerCase() === "json") {
+        exportChatJson(messages, model, sessionId);
+      } else {
+        exportChatMarkdown(messages, model, sessionId);
+      }
+      setDraft("");
+      return true;
+    }
+    if (cmd === "/compare") {
+      setShowCompareModal(true);
+      setDraft("");
+      return true;
+    }
+    if (cmd === "/model" && arg) {
+      const matched = options.find((o) => o.toLowerCase() === arg.toLowerCase() || o.toLowerCase().includes(arg.toLowerCase()));
+      if (matched) {
+        setModel(matched);
+      }
+      setDraft("");
+      return true;
+    }
+    if (cmd === "/help") {
+      const helpText = SLASH_COMMANDS.map((c) => `- \`${c.command.trim()}\`: ${c.description}`).join("\n");
+      setMessages((prev) => [...prev, { role: "assistant", content: `**Available Slash Commands:**\n\n${helpText}` }]);
+      setDraft("");
+      return true;
+    }
+    return false;
+  }
+
   async function handleSend() {
+    if (executeSlashCommand(draft)) return;
     if ((!draft.trim() && attachedFiles.length === 0) || !model || sending) return;
 
     let promptModifier = "";
@@ -1552,6 +1615,53 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
               </select>
             </div>
           )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+            <span
+              title="Estimated session tokens (32k context window)"
+              style={{
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+                color: "var(--ink-soft)",
+                padding: "5px 8px",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border)",
+                background: "var(--bg-sunken)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {(() => {
+                const tok = estimateSessionTokens(messages);
+                const pct = Math.min(100, Math.round((tok / 32000) * 100));
+                return `~${tok.toLocaleString()} tok (${pct}%)${lastTokPerSec !== null ? ` · ${lastTokPerSec} tok/s` : ""}`;
+              })()}
+            </span>
+            <button
+              className="btn secondary"
+              onClick={() => exportChatMarkdown(messages, model, sessionId)}
+              disabled={messages.length === 0}
+              title="Export chat as Markdown (.md)"
+              style={{ fontSize: 11, padding: "6px 10px", whiteSpace: "nowrap" }}
+            >
+              ⬇ .md
+            </button>
+            <button
+              className="btn secondary"
+              onClick={() => exportChatJson(messages, model, sessionId)}
+              disabled={messages.length === 0}
+              title="Export chat as JSON (.json)"
+              style={{ fontSize: 11, padding: "6px 10px", whiteSpace: "nowrap" }}
+            >
+              ⬇ .json
+            </button>
+            <button
+              className="btn secondary"
+              onClick={() => setShowCompareModal(true)}
+              title="Compare two models side-by-side"
+              style={{ fontSize: 12, padding: "6px 10px", whiteSpace: "nowrap" }}
+            >
+              ⚖️ Compare
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2000,28 +2110,78 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
         >
           {transcribingVoice ? "⏳" : (recording ? "🛑" : "🎤")}
         </button>
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder="Message the model…"
-          rows={2}
-          style={{
-            flex: 1,
-            padding: "10px 12px",
-            borderRadius: "var(--radius-sm)",
-            border: "1px solid var(--border)",
-            background: "var(--bg-sunken)",
-            color: "var(--ink)",
-            fontFamily: "var(--font-body)",
-            resize: "none",
-          }}
-        />
+        <div style={{ flex: 1, position: "relative", display: "flex" }}>
+          {draft.startsWith("/") && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: "calc(100% + 6px)",
+                left: 0,
+                right: 0,
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                padding: 6,
+                zIndex: 50,
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+              }}
+            >
+              {SLASH_COMMANDS.filter((c) => c.command.startsWith(draft.trim().split(/\s+/)[0])).map((c) => (
+                <button
+                  key={c.command}
+                  type="button"
+                  onClick={() => {
+                    if (c.command.endsWith(" ")) {
+                      setDraft(c.command);
+                    } else {
+                      executeSlashCommand(c.command);
+                    }
+                  }}
+                  style={{
+                    textAlign: "left",
+                    padding: "6px 10px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "none",
+                    background: "var(--bg-sunken)",
+                    color: "var(--ink)",
+                    cursor: "pointer",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 12,
+                  }}
+                >
+                  <code style={{ color: "var(--accent)" }}>{c.command.trim()}</code>
+                  <span style={{ color: "var(--ink-soft)" }}>{c.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="Message the model or type / for commands…"
+            rows={2}
+            style={{
+              flex: 1,
+              padding: "10px 12px",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--border)",
+              background: "var(--bg-sunken)",
+              color: "var(--ink)",
+              fontFamily: "var(--font-body)",
+              resize: "none",
+            }}
+          />
+        </div>
         {sending ? (
           <button className="btn secondary" onClick={handleAbort} style={{ borderColor: "var(--warn)", color: "var(--warn)", minWidth: 80 }}>
             Stop
@@ -2032,6 +2192,12 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
           </button>
         )}
       </div>
+      {showCompareModal && (
+        <ModelCompareModal
+          installedModels={installedModels}
+          onClose={() => setShowCompareModal(false)}
+        />
+      )}
     </div>
   );
 }

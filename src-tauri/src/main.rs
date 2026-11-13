@@ -1009,12 +1009,23 @@ fn load_telegram_settings() -> TelegramSettings {
         .unwrap_or_default()
 }
 
+fn write_private_file(path: &std::path::Path, content: &str) -> Result<(), String> {
+    std::fs::write(path, content).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(path, perms).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn save_telegram_settings(bot_token: String, chat_id: String, model: String) -> Result<(), String> {
     std::fs::create_dir_all(genesis_data_dir()).map_err(|e| e.to_string())?;
     let settings = TelegramSettings { bot_token, chat_id, model };
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(telegram_settings_file(), json).map_err(|e| e.to_string())
+    write_private_file(&telegram_settings_file(), &json)
 }
 
 fn freellmapi_settings_file() -> std::path::PathBuf {
@@ -1072,7 +1083,7 @@ fn save_freellmapi_settings(
         custom_key: keep_opt(custom_key, existing.custom_key),
     };
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(freellmapi_settings_file(), json).map_err(|e| e.to_string())
+    write_private_file(&freellmapi_settings_file(), &json)
 }
 
 // ---------- Chat, Projects, and Recent Chats ----------
@@ -1154,8 +1165,15 @@ fn new_id() -> String {
     format!("{}{}", now.as_secs(), now.subsec_nanos())
 }
 
-fn session_path(id: &str) -> std::path::PathBuf {
-    chats_dir().join(format!("{id}.json"))
+fn session_path(id: &str) -> Result<std::path::PathBuf, String> {
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("Invalid session ID".to_string());
+    }
+    Ok(chats_dir().join(format!("{id}.json")))
 }
 
 // ---- Projects ----
@@ -1266,13 +1284,13 @@ fn new_chat_session(model: String, project_id: Option<String>) -> Result<ChatSes
     };
     std::fs::create_dir_all(chats_dir()).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?;
-    std::fs::write(session_path(&session.id), json).map_err(|e| e.to_string())?;
+    std::fs::write(session_path(&session.id)?, json).map_err(|e| e.to_string())?;
     Ok(session)
 }
 
 #[tauri::command]
 fn load_chat_session(id: String) -> Result<ChatSession, String> {
-    let text = std::fs::read_to_string(session_path(&id)).map_err(|e| e.to_string())?;
+    let text = std::fs::read_to_string(session_path(&id)?).map_err(|e| e.to_string())?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
@@ -1292,12 +1310,12 @@ fn save_chat_session(id: String, model: String, messages: Vec<ChatMessage>) -> R
         }
     }
     let json = serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?;
-    std::fs::write(session_path(&id), json).map_err(|e| e.to_string())
+    std::fs::write(session_path(&id)?, json).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn delete_chat_session(id: String) -> Result<(), String> {
-    std::fs::remove_file(session_path(&id)).map_err(|e| e.to_string())
+    std::fs::remove_file(session_path(&id)?).map_err(|e| e.to_string())
 }
 
 
@@ -1643,7 +1661,11 @@ fn abort_chat(controller: tauri::State<'_, ChatController>) {
 
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
-    open::that(url).map_err(|e| e.to_string())
+    let trimmed = url.trim();
+    if !trimmed.starts_with("https://") && !trimmed.starts_with("http://") {
+        return Err("Blocked non-HTTP(S) URL".to_string());
+    }
+    open::that(trimmed).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -2809,6 +2831,10 @@ fn run_tests_in_sandbox(command: String) -> Result<String, String> {
             "run",
             "--rm",
             "--network", "none", // Air-gapped network for safety
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--memory=512m",
+            "--cpus=1",
             "-v",
             &format!("{}:/workspace", dir_str),
             "-w", "/workspace",
@@ -3016,38 +3042,62 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
     })
 }
 
+#[cfg(target_family = "unix")]
+fn single_instance_socket_path() -> std::path::PathBuf {
+    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
+        let trimmed = runtime_dir.trim();
+        if !trimmed.is_empty() {
+            return std::path::PathBuf::from(trimmed).join("genesis-grid.sock");
+        }
+    }
+    let dir = genesis_data_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("genesis-grid.sock")
+}
+
 #[tauri::command]
 async fn install_app_update(download_url: String) -> Result<String, String> {
+    let trimmed_url = download_url.trim();
+    if !trimmed_url.starts_with("https://github.com/Coraje187/genesis-grid/releases/") {
+        return Err("Blocked untrusted update URL".to_string());
+    }
+
     #[cfg(target_os = "linux")]
     {
         let home = dirs::home_dir().ok_or("Cannot locate home directory")?;
         let target_dir = home.join(".local/share/genesis-grid");
+        std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
         let target_appimage = target_dir.join("genesis-grid.AppImage");
+        let temp_appimage = target_dir.join("genesis-grid.AppImage.tmp");
 
         let client = reqwest::Client::builder()
             .user_agent("genesis-grid")
             .build()
             .map_err(|e| e.to_string())?;
 
-        let res = client.get(&download_url).send().await.map_err(|e| e.to_string())?;
+        let res = client.get(trimmed_url).send().await.map_err(|e| e.to_string())?;
         if !res.status().is_success() {
             return Err(format!("Download failed with status {}", res.status()));
         }
 
         let bytes = res.bytes().await.map_err(|e| e.to_string())?;
-        std::fs::write(&target_appimage, bytes).map_err(|e| e.to_string())?;
+        if bytes.is_empty() {
+            return Err("Downloaded update archive was empty".to_string());
+        }
+        std::fs::write(&temp_appimage, bytes).map_err(|e| e.to_string())?;
 
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&target_appimage).map_err(|e| e.to_string())?.permissions();
+        let mut perms = std::fs::metadata(&temp_appimage).map_err(|e| e.to_string())?.permissions();
         perms.set_mode(0o755);
-        let _ = std::fs::set_permissions(&target_appimage, perms);
+        std::fs::set_permissions(&temp_appimage, perms).map_err(|e| e.to_string())?;
+        std::fs::rename(&temp_appimage, &target_appimage).map_err(|e| e.to_string())?;
 
         Ok("Update downloaded successfully. Restart Genesis Grid to apply.".to_string())
     }
 
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = open::that(&download_url);
+        let _ = open::that(trimmed_url);
         Ok("Opened download in browser.".to_string())
     }
 }
@@ -3057,8 +3107,7 @@ fn main() {
     {
         // Single instance check: if an existing Genesis Grid process is running,
         // send it "show" to unhide and focus its window, then exit this process.
-        let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
-        let sock_path = format!("/tmp/genesis-grid-{}.sock", user);
+        let sock_path = single_instance_socket_path();
         if let Ok(mut stream) = std::os::unix::net::UnixStream::connect(&sock_path) {
             use std::io::Write;
             let _ = stream.write_all(b"show\n");
@@ -3151,8 +3200,7 @@ fn main() {
             #[cfg(target_family = "unix")]
             {
                 let app_handle = app.handle();
-                let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
-                let sock_path = format!("/tmp/genesis-grid-{}.sock", user);
+                let sock_path = single_instance_socket_path();
                 let _ = std::fs::remove_file(&sock_path);
                 if let Ok(listener) = std::os::unix::net::UnixListener::bind(&sock_path) {
                     std::thread::spawn(move || {

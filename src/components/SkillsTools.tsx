@@ -148,6 +148,42 @@ export default function SkillsTools() {
   const [customUrl, setCustomUrl] = useState("");
   const [cloudSaveSuccess, setCloudSaveSuccess] = useState(false);
   const [cloudSaveError, setCloudSaveError] = useState("");
+  const [providerHealth, setProviderHealth] = useState<{ ollama: string; freellmapi: string }>({
+    ollama: "unknown",
+    freellmapi: "unknown",
+  });
+  const [keyTestStatus, setKeyTestStatus] = useState<Record<string, { state: "idle" | "testing" | "ok" | "err"; message?: string }>>({});
+
+  async function refreshProviderHealth() {
+    const check = async (url: string) => {
+      try {
+        const res = await fetch(url);
+        return res.ok ? "online" : "offline";
+      } catch {
+        return "offline";
+      }
+    };
+    const [ollama, freellmapi] = await Promise.all([
+      check("http://127.0.0.1:11434/api/tags"),
+      check("http://127.0.0.1:3001/api/keys"),
+    ]);
+    setProviderHealth({ ollama, freellmapi });
+  }
+
+  async function handleTestProviderKey(provider: "openrouter" | "openai" | "gemini") {
+    setKeyTestStatus((prev) => ({ ...prev, [provider]: { state: "testing" } }));
+    try {
+      await handleBlurSave();
+      await invoke<string>("chat_freellmapi", {
+        model: "",
+        provider,
+        history: [{ role: "user", content: "Reply with OK" }],
+      });
+      setKeyTestStatus((prev) => ({ ...prev, [provider]: { state: "ok", message: "Connected" } }));
+    } catch (e) {
+      setKeyTestStatus((prev) => ({ ...prev, [provider]: { state: "err", message: String(e).slice(0, 80) } }));
+    }
+  }
 
   const latestSettingsRef = useRef({
     unifiedKey: "", defaultModel: "", openrouterKey: "", openrouterModel: "", openaiKey: "", openaiModel: "", geminiKey: "", geminiModel: "", customKey: "", customUrl: ""
@@ -826,10 +862,38 @@ export default function SkillsTools() {
               
               {/* Direct APIs Section */}
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <h3 style={{ fontSize: 14, margin: "0 0 4px 0", color: "var(--accent)", opacity: 0.9 }}>⚡ Direct Cloud Keys</h3>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                  <h3 style={{ fontSize: 14, margin: 0, color: "var(--accent)", opacity: 0.9 }}>⚡ Direct Cloud Keys</h3>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, fontFamily: "var(--font-mono)" }}>
+                    <span>
+                      Ollama:{" "}
+                      <strong style={{ color: providerHealth.ollama === "online" ? "#00ff88" : providerHealth.ollama === "offline" ? "#ff5c5c" : "var(--ink-soft)" }}>
+                        {providerHealth.ollama.toUpperCase()}
+                      </strong>
+                    </span>
+                    <span>
+                      FreeLLMAPI:{" "}
+                      <strong style={{ color: providerHealth.freellmapi === "online" ? "#00ff88" : providerHealth.freellmapi === "offline" ? "#ff5c5c" : "var(--ink-soft)" }}>
+                        {providerHealth.freellmapi.toUpperCase()}
+                      </strong>
+                    </span>
+                    <button type="button" className="btn secondary" onClick={refreshProviderHealth} style={{ fontSize: 11, padding: "4px 8px" }}>
+                      Check Health
+                    </button>
+                  </div>
+                </div>
                 
                 <div>
-                  <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>OpenRouter API Key</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <label style={{ fontSize: 12, fontWeight: "bold" }}>OpenRouter API Key</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {keyTestStatus.openrouter?.state === "ok" && <span style={{ fontSize: 11, color: "#00ff88" }}>✓ Connected</span>}
+                      {keyTestStatus.openrouter?.state === "err" && <span style={{ fontSize: 11, color: "#ff5c5c" }}>✗ {keyTestStatus.openrouter.message}</span>}
+                      <button type="button" className="btn secondary" onClick={() => handleTestProviderKey("openrouter")} disabled={keyTestStatus.openrouter?.state === "testing"} style={{ fontSize: 11, padding: "3px 8px" }}>
+                        {keyTestStatus.openrouter?.state === "testing" ? "Testing..." : "Test Key"}
+                      </button>
+                    </div>
+                  </div>
                   <input 
                     id="settings-openrouter-key"
                     type="password" 
@@ -851,7 +915,16 @@ export default function SkillsTools() {
                 </div>
 
                 <div>
-                  <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>OpenAI API Key</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <label style={{ fontSize: 12, fontWeight: "bold" }}>OpenAI API Key</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {keyTestStatus.openai?.state === "ok" && <span style={{ fontSize: 11, color: "#00ff88" }}>✓ Connected</span>}
+                      {keyTestStatus.openai?.state === "err" && <span style={{ fontSize: 11, color: "#ff5c5c" }}>✗ {keyTestStatus.openai.message}</span>}
+                      <button type="button" className="btn secondary" onClick={() => handleTestProviderKey("openai")} disabled={keyTestStatus.openai?.state === "testing"} style={{ fontSize: 11, padding: "3px 8px" }}>
+                        {keyTestStatus.openai?.state === "testing" ? "Testing..." : "Test Key"}
+                      </button>
+                    </div>
+                  </div>
                   <input 
                     id="settings-openai-key"
                     type="password" 
@@ -873,7 +946,16 @@ export default function SkillsTools() {
                 </div>
 
                 <div>
-                  <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: "bold" }}>Google Gemini API Key</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <label style={{ fontSize: 12, fontWeight: "bold" }}>Google Gemini API Key</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {keyTestStatus.gemini?.state === "ok" && <span style={{ fontSize: 11, color: "#00ff88" }}>✓ Connected</span>}
+                      {keyTestStatus.gemini?.state === "err" && <span style={{ fontSize: 11, color: "#ff5c5c" }}>✗ {keyTestStatus.gemini.message}</span>}
+                      <button type="button" className="btn secondary" onClick={() => handleTestProviderKey("gemini")} disabled={keyTestStatus.gemini?.state === "testing"} style={{ fontSize: 11, padding: "3px 8px" }}>
+                        {keyTestStatus.gemini?.state === "testing" ? "Testing..." : "Test Key"}
+                      </button>
+                    </div>
+                  </div>
                   <input 
                     id="settings-gemini-key"
                     type="password" 
