@@ -1747,6 +1747,176 @@ fn get_home_dir() -> Result<String, String> {
         .ok_or_else(|| "Could not determine home directory".to_string())
 }
 
+struct WorkspaceState {
+    workspace_root: std::sync::Mutex<Option<std::path::PathBuf>>,
+    vault_root: std::sync::Mutex<Option<std::path::PathBuf>>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct PersistedWorkspaceConfig {
+    workspace_root: Option<String>,
+    vault_root: Option<String>,
+}
+
+fn workspace_config_file() -> std::path::PathBuf {
+    genesis_data_dir().join("workspace-config.json")
+}
+
+fn load_workspace_state() -> WorkspaceState {
+    let persisted: PersistedWorkspaceConfig = std::fs::read_to_string(workspace_config_file())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    let workspace_root = persisted
+        .workspace_root
+        .and_then(|p| std::path::PathBuf::from(p).canonicalize().ok())
+        .or_else(|| std::env::current_dir().ok().and_then(|p| p.canonicalize().ok()));
+
+    let vault_root = persisted
+        .vault_root
+        .and_then(|p| std::path::PathBuf::from(p).canonicalize().ok());
+
+    WorkspaceState {
+        workspace_root: std::sync::Mutex::new(workspace_root),
+        vault_root: std::sync::Mutex::new(vault_root),
+    }
+}
+
+fn persist_workspace_state(state: &WorkspaceState) {
+    let ws = state
+        .workspace_root
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|p| p.to_string_lossy().to_string()));
+    let vault = state
+        .vault_root
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|p| p.to_string_lossy().to_string()));
+    let cfg = PersistedWorkspaceConfig {
+        workspace_root: ws,
+        vault_root: vault,
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&cfg) {
+        let _ = std::fs::create_dir_all(genesis_data_dir());
+        let _ = std::fs::write(workspace_config_file(), json);
+    }
+}
+
+#[tauri::command]
+fn set_workspace_root(path: String, state: tauri::State<'_, WorkspaceState>) -> Result<String, String> {
+    let canonical = std::path::PathBuf::from(path.trim())
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace directory: {e}"))?;
+    if !canonical.is_dir() {
+        return Err("Workspace path must be a directory".to_string());
+    }
+    {
+        let mut guard = state.workspace_root.lock().map_err(|e| e.to_string())?;
+        *guard = Some(canonical.clone());
+    }
+    persist_workspace_state(&state);
+    Ok(canonical.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn get_workspace_root(state: tauri::State<'_, WorkspaceState>) -> Result<Option<String>, String> {
+    let guard = state.workspace_root.lock().map_err(|e| e.to_string())?;
+    Ok(guard.as_ref().map(|p| p.to_string_lossy().to_string()))
+}
+
+fn is_sensitive_path_component(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    matches!(
+        lower.as_str(),
+        ".ssh" | ".gnupg" | ".aws" | ".kube" | ".docker" | ".netrc" | ".npmrc" | ".pypirc" | ".git-credentials"
+    )
+}
+
+fn resolve_confined_path(
+    raw_path: &str,
+    allowed_roots: &[std::path::PathBuf],
+    allow_missing_leaf: bool,
+    block_dotfiles: bool,
+) -> Result<std::path::PathBuf, String> {
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err("Invalid file path".to_string());
+    }
+
+    let canonical_roots: Vec<std::path::PathBuf> = allowed_roots
+        .iter()
+        .filter_map(|r| r.canonicalize().ok())
+        .collect();
+
+    if canonical_roots.is_empty() {
+        return Err("No allowed workspace or vault directory is configured.".to_string());
+    }
+
+    let input_path = std::path::PathBuf::from(trimmed);
+    let candidate = if input_path.is_absolute() {
+        input_path
+    } else {
+        canonical_roots[0].join(input_path)
+    };
+
+    let resolved = if candidate.exists() {
+        candidate
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve path: {e}"))?
+    } else if allow_missing_leaf {
+        // Walk up until we find an existing ancestor, collecting only normal path segments
+        let mut remainder: Vec<std::ffi::OsString> = Vec::new();
+        let mut cursor = candidate.as_path();
+        while !cursor.exists() {
+            match cursor.components().next_back() {
+                Some(std::path::Component::Normal(seg)) => {
+                    remainder.push(seg.to_os_string());
+                    cursor = cursor
+                        .parent()
+                        .ok_or_else(|| "Invalid path outside allowed directories".to_string())?;
+                }
+                _ => {
+                    return Err("Path traversal or invalid path component blocked".to_string());
+                }
+            }
+        }
+        let mut base = cursor
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve parent directory: {e}"))?;
+        for seg in remainder.into_iter().rev() {
+            base.push(seg);
+        }
+        base
+    } else {
+        return Err("File does not exist".to_string());
+    };
+
+    let matched_root = canonical_roots
+        .iter()
+        .find(|root| resolved.starts_with(root))
+        .ok_or_else(|| {
+            "Access denied: path is outside the allowed workspace/vault directory.".to_string()
+        })?;
+
+    if let Ok(rel) = resolved.strip_prefix(matched_root) {
+        for comp in rel.components() {
+            if let std::path::Component::Normal(os_str) = comp {
+                let name = os_str.to_string_lossy();
+                if is_sensitive_path_component(&name) {
+                    return Err("Access denied: sensitive credential/system path blocked.".to_string());
+                }
+                if block_dotfiles && name.starts_with('.') {
+                    return Err("Access denied: writing to hidden/dot files is blocked.".to_string());
+                }
+            }
+        }
+    }
+
+    Ok(resolved)
+}
+
 fn sanitize_rag_chunk(text: &str) -> String {
     let patterns = [
         r"(?i)system\s*directive:",
@@ -1763,15 +1933,56 @@ fn sanitize_rag_chunk(text: &str) -> String {
     format!("<untrusted_context>\n{}\n</untrusted_context>", sanitized)
 }
 
+fn collect_allowed_file_roots(
+    state: &WorkspaceState,
+    include_skills: bool,
+) -> Result<Vec<std::path::PathBuf>, String> {
+    let mut roots = Vec::new();
+    if let Ok(guard) = state.workspace_root.lock() {
+        if let Some(ref ws) = *guard {
+            roots.push(ws.clone());
+        }
+    }
+    if let Ok(guard) = state.vault_root.lock() {
+        if let Some(ref vault) = *guard {
+            roots.push(vault.clone());
+        }
+    }
+    if include_skills {
+        let sdir = skills_dir();
+        if sdir.exists() {
+            roots.push(sdir);
+        }
+    }
+    if roots.is_empty() {
+        return Err("No workspace or vault directory selected.".to_string());
+    }
+    Ok(roots)
+}
+
 #[tauri::command]
-fn read_file_text(path: String) -> Result<String, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+fn read_file_text(
+    path: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let roots = collect_allowed_file_roots(&state, true)?;
+    let safe_path = resolve_confined_path(&path, &roots, false, false)?;
+    let content = std::fs::read_to_string(safe_path).map_err(|e| e.to_string())?;
     Ok(sanitize_rag_chunk(&content))
 }
 
 #[tauri::command]
-fn write_file_text(path: String, content: String) -> Result<(), String> {
-    std::fs::write(path, content).map_err(|e| e.to_string())
+fn write_file_text(
+    path: String,
+    content: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    let roots = collect_allowed_file_roots(&state, false)?;
+    let safe_path = resolve_confined_path(&path, &roots, true, true)?;
+    if let Some(parent) = safe_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(safe_path, content).map_err(|e| e.to_string())
 }
 
 
@@ -1881,17 +2092,127 @@ fn run_command(command: String) -> Result<String, String> {
     }
 }
 
+fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let octets = v4.octets();
+            let is_cgnat = octets[0] == 100 && (octets[1] & 0xc0) == 64;
+            let is_benchmark = octets[0] == 198 && (octets[1] == 18 || octets[1] == 19);
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || is_cgnat
+                || is_benchmark
+        }
+        std::net::IpAddr::V6(v6) => {
+            if let Some(mapped_v4) = v6.to_ipv4_mapped() {
+                return is_blocked_ip(std::net::IpAddr::V4(mapped_v4));
+            }
+            let segs = v6.segments();
+            let is_unique_local = (segs[0] & 0xfe00) == 0xfc00;
+            let is_link_local = (segs[0] & 0xffc0) == 0xfe80;
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || is_unique_local
+                || is_link_local
+        }
+    }
+}
+
+async fn validate_outbound_url(raw_url: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(raw_url.trim())
+        .map_err(|e| format!("Invalid URL: {e}"))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => return Err(format!("Blocked unsupported URL scheme: {other}")),
+    }
+
+    let host_str = parsed
+        .host_str()
+        .ok_or_else(|| "URL must include a valid host".to_string())?;
+    let host_lower = host_str.to_lowercase();
+
+    if host_lower == "localhost"
+        || host_lower.ends_with(".localhost")
+        || host_lower.ends_with(".local")
+        || host_lower.ends_with(".internal")
+        || host_lower == "metadata.google.internal"
+    {
+        return Err(format!("Blocked request to local/internal host: {host_str}"));
+    }
+
+    if let Ok(ip) = host_str.trim_matches(|c| c == '[' || c == ']').parse::<std::net::IpAddr>() {
+        if is_blocked_ip(ip) {
+            return Err(format!("Blocked request to private/loopback/metadata IP: {ip}"));
+        }
+        return Ok(parsed);
+    }
+
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let addrs = tokio::net::lookup_host((host_str, port))
+        .await
+        .map_err(|e| format!("Failed to resolve host '{host_str}': {e}"))?;
+
+    let mut resolved_any = false;
+    for addr in addrs {
+        resolved_any = true;
+        if is_blocked_ip(addr.ip()) {
+            return Err(format!(
+                "Blocked request: host '{host_str}' resolved to private/loopback/metadata IP {}",
+                addr.ip()
+            ));
+        }
+    }
+
+    if !resolved_any {
+        return Err(format!("Host '{host_str}' did not resolve to any IP address"));
+    }
+
+    Ok(parsed)
+}
+
 #[tauri::command]
 async fn fetch_url(url: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent("GenesisGrid/0.1.0")
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {e}"))?;
+    let mut current_url = validate_outbound_url(&url).await?;
+    let mut redirects = 0u8;
+
+    let resp = loop {
+        let res = client
+            .get(current_url.as_str())
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+        if res.status().is_redirection() {
+            if redirects >= 5 {
+                return Err("Too many HTTP redirects".to_string());
+            }
+            let location = res
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| "Redirect response missing Location header".to_string())?;
+            let next = current_url
+                .join(location)
+                .map_err(|e| format!("Invalid redirect URL: {e}"))?;
+            current_url = validate_outbound_url(next.as_str()).await?;
+            redirects += 1;
+            continue;
+        }
+
+        break res;
+    };
 
     let status = resp.status();
     let text = resp.text().await.map_err(|e| e.to_string())?;
@@ -2117,21 +2438,36 @@ fn list_notebooks() -> Result<Vec<serde_json::Value>, String> {
     Ok(out)
 }
 
+fn notebook_path(id: &str) -> Result<std::path::PathBuf, String> {
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("Invalid notebook ID".to_string());
+    }
+    Ok(notebooks_dir().join(format!("{id}.json")))
+}
+
 #[tauri::command]
 fn save_notebook(id: String, content: String) -> Result<(), String> {
     std::fs::create_dir_all(notebooks_dir()).map_err(|e| e.to_string())?;
-    let path = notebooks_dir().join(format!("{id}.json"));
+    let path = notebook_path(&id)?;
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn delete_notebook(id: String) -> Result<(), String> {
-    let path = notebooks_dir().join(format!("{id}.json"));
+    let path = notebook_path(&id)?;
     std::fs::remove_file(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn run_code_sandbox(language: String, code: String) -> Result<String, String> {
+fn run_code_sandbox(
+    language: String,
+    code: String,
+    allow_unsandboxed: Option<bool>,
+) -> Result<String, String> {
     // 1. Check if Docker is available and running
     let docker_check = std::process::Command::new("docker")
         .arg("ps")
@@ -2146,25 +2482,31 @@ fn run_code_sandbox(language: String, code: String) -> Result<String, String> {
 
     if has_docker {
         use std::time::{SystemTime, UNIX_EPOCH};
-        
-        // Run in Docker sandbox!
+
+        // Run in isolated Docker sandbox using a dedicated temporary directory
         let since_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-            
-        let temp_filename = format!("temp_sandbox_{}.{}", since_epoch, match language.as_str() {
+
+        let ext = match language.as_str() {
             "python" => "py",
             "javascript" | "node" => "js",
             _ => return Err(format!("Unsupported language: {}", language)),
-        });
-        
-        let temp_path = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(&temp_filename);
-            
-        std::fs::write(&temp_path, &code)
-            .map_err(|e| format!("Failed to create temp file: {}", e))?;
+        };
+
+        let sandbox_dir = std::env::temp_dir()
+            .join(format!("genesis_sandbox_{}_{}", since_epoch, std::process::id()));
+        std::fs::create_dir_all(&sandbox_dir)
+            .map_err(|e| format!("Failed to create isolated sandbox dir: {}", e))?;
+
+        let temp_filename = format!("script.{}", ext);
+        let temp_path = sandbox_dir.join(&temp_filename);
+
+        if let Err(e) = std::fs::write(&temp_path, &code) {
+            let _ = std::fs::remove_dir_all(&sandbox_dir);
+            return Err(format!("Failed to create temp file: {}", e));
+        }
 
         let container_image = "secure-grid-sandbox";
         let script_runner = match language.as_str() {
@@ -2173,22 +2515,25 @@ fn run_code_sandbox(language: String, code: String) -> Result<String, String> {
             _ => "python3",
         };
 
-        // Mount current directory (where temp file is written) to /workspace inside container
-        let dir_to_mount = temp_path.parent().unwrap().to_string_lossy().to_string();
+        // Mount only the isolated temporary directory (read-only) to /workspace inside container
+        let dir_to_mount = sandbox_dir.to_string_lossy().to_string();
         let volume_arg = format!("{}:/workspace:ro", dir_to_mount);
 
         let output = std::process::Command::new("docker")
             .args([
                 "run",
                 "--rm",
-                "-v",
-                &volume_arg,
                 "--network",
                 "none",
+                "--cap-drop=ALL",
+                "--security-opt=no-new-privileges",
+                "--pids-limit=64",
                 "-m",
                 "256m",
                 "--cpus",
                 "1",
+                "-v",
+                &volume_arg,
                 "-w",
                 "/workspace",
                 container_image,
@@ -2197,8 +2542,8 @@ fn run_code_sandbox(language: String, code: String) -> Result<String, String> {
             ])
             .output();
 
-        // Clean up the temp file
-        let _ = std::fs::remove_file(&temp_path);
+        // Clean up the isolated temp directory
+        let _ = std::fs::remove_dir_all(&sandbox_dir);
 
         match output {
             Ok(out) => {
@@ -2219,9 +2564,16 @@ fn run_code_sandbox(language: String, code: String) -> Result<String, String> {
             Err(e) => Err(format!("Sandbox run failed: {}", e)),
         }
     } else {
-        // Fall back to local unsandboxed execution with a warning banner!
+        if !allow_unsandboxed.unwrap_or(false) {
+            return Err(
+                "DOCKER_UNAVAILABLE: Docker is not running. Refusing to execute code unsandboxed on the host without explicit user opt-in."
+                    .to_string(),
+            );
+        }
+
+        let python_exe = if cfg!(target_os = "windows") { "python" } else { "python3" };
         let output = match language.as_str() {
-            "python" => std::process::Command::new("python").arg("-c").arg(&code).output(),
+            "python" => std::process::Command::new(python_exe).arg("-c").arg(&code).output(),
             "javascript" | "node" => std::process::Command::new("node").arg("-e").arg(&code).output(),
             _ => return Err(format!("Unsupported language: {}", language)),
         };
@@ -2230,7 +2582,7 @@ fn run_code_sandbox(language: String, code: String) -> Result<String, String> {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                let warning = "[WARNING: Running UNSANDBOXED directly on host system because Docker is not running]\n\n";
+                let warning = "[WARNING: Running UNSANDBOXED directly on host system with explicit user opt-in because Docker is not running]\n\n";
                 if out.status.success() {
                     if stdout.is_empty() && stderr.is_empty() {
                         Ok(format!("{}{}", warning, "(No output)"))
@@ -2554,14 +2906,25 @@ struct VaultGraph {
 }
 
 #[tauri::command]
-fn scan_vault(path: String) -> Result<VaultGraph, String> {
+fn scan_vault(
+    path: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<VaultGraph, String> {
     let mut nodes = vec![];
     let mut links = vec![];
-    let vault_path = std::path::PathBuf::from(&path);
+    let vault_path = std::path::PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|_| "Invalid vault directory".to_string())?;
     
     if !vault_path.exists() || !vault_path.is_dir() {
         return Err("Invalid vault directory".into());
     }
+
+    {
+        let mut guard = state.vault_root.lock().map_err(|e| e.to_string())?;
+        *guard = Some(vault_path.clone());
+    }
+    persist_workspace_state(&state);
 
     // Helper closure to recursively find .md files
     fn visit_dirs(dir: &std::path::Path, cb: &mut dyn FnMut(&std::fs::DirEntry)) -> std::io::Result<()> {
@@ -2624,16 +2987,37 @@ fn scan_vault(path: String) -> Result<VaultGraph, String> {
 }
 
 #[tauri::command]
-fn read_vault_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(path).map_err(|e| e.to_string())
+fn read_vault_file(
+    path: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let vault_root = state
+        .vault_root
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or_else(|| "No vault directory selected. Select a vault in Memory Core first.".to_string())?;
+    let safe_path = resolve_confined_path(&path, &[vault_root], false, true)?;
+    std::fs::read_to_string(safe_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn write_vault_file(path: String, content: String) -> Result<(), String> {
-    if let Some(parent) = std::path::PathBuf::from(&path).parent() {
+fn write_vault_file(
+    path: String,
+    content: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    let vault_root = state
+        .vault_root
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or_else(|| "No vault directory selected. Select a vault in Memory Core first.".to_string())?;
+    let safe_path = resolve_confined_path(&path, &[vault_root], true, true)?;
+    if let Some(parent) = safe_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(path, content).map_err(|e| e.to_string())
+    std::fs::write(safe_path, content).map_err(|e| e.to_string())
 }
 
 // ---------- Ollama process management ----------
@@ -3055,15 +3439,168 @@ fn single_instance_socket_path() -> std::path::PathBuf {
     dir.join("genesis-grid.sock")
 }
 
+fn validate_update_url(raw_url: &str) -> Result<url::Url, String> {
+    let trimmed = raw_url.trim();
+    let lower = trimmed.to_lowercase();
+    if lower.contains("..") || lower.contains("%2e") || lower.contains('\\') {
+        return Err("Blocked update URL containing path traversal characters".to_string());
+    }
+
+    let parsed = url::Url::parse(trimmed)
+        .map_err(|_| "Blocked malformed update URL".to_string())?;
+
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some("github.com")
+        || parsed.port().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("Blocked untrusted update URL host or scheme".to_string());
+    }
+
+    let segments: Vec<&str> = parsed
+        .path_segments()
+        .ok_or_else(|| "Blocked update URL with invalid path".to_string())?
+        .collect();
+
+    if segments.iter().any(|s| s.is_empty() || *s == "." || *s == "..") {
+        return Err("Blocked update URL with unsafe path segments".to_string());
+    }
+
+    // Must match /Coraje187/genesis-grid/releases/download/<tag>/<filename>
+    if segments.len() < 6
+        || segments[0] != "Coraje187"
+        || segments[1] != "genesis-grid"
+        || segments[2] != "releases"
+        || segments[3] != "download"
+    {
+        return Err("Blocked untrusted update URL path".to_string());
+    }
+
+    Ok(parsed)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_sha256_from_checksum_text(text: &str, filename: &str) -> Option<String> {
+    let is_hex64 = |s: &str| s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit());
+    let mut single_hash: Option<String> = None;
+    let mut line_count = 0usize;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        line_count += 1;
+        let mut parts = trimmed.split_whitespace();
+        if let Some(first) = parts.next() {
+            if is_hex64(first) {
+                if let Some(name_part) = parts.next() {
+                    let clean_name = name_part.trim_start_matches('*');
+                    if clean_name == filename || clean_name.ends_with(&format!("/{filename}")) {
+                        return Some(first.to_ascii_lowercase());
+                    }
+                } else {
+                    single_hash = Some(first.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+
+    if line_count == 1 {
+        return single_hash;
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+async fn fetch_expected_update_sha256(
+    client: &reqwest::Client,
+    download_url: &str,
+    asset_filename: &str,
+) -> Result<String, String> {
+    let res = client
+        .get("https://api.github.com/repos/Coraje187/genesis-grid/releases/latest")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch release metadata for integrity check: {e}"))?;
+
+    if !res.status().is_success() {
+        return Err(format!(
+            "GitHub API returned HTTP {} while verifying update integrity",
+            res.status()
+        ));
+    }
+
+    let release: serde_json::Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse release metadata: {e}"))?;
+
+    let assets = release["assets"]
+        .as_array()
+        .ok_or_else(|| "Release metadata contained no assets".to_string())?;
+
+    let matching_asset = assets
+        .iter()
+        .find(|a| a["browser_download_url"].as_str() == Some(download_url))
+        .ok_or_else(|| "Update URL does not match any asset in the latest GitHub release".to_string())?;
+
+    // 1. Prefer GitHub's native asset SHA-256 digest field ("sha256:<64-hex>")
+    if let Some(digest) = matching_asset["digest"].as_str() {
+        if let Some(hex_hash) = digest.strip_prefix("sha256:") {
+            if hex_hash.len() == 64 && hex_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Ok(hex_hash.to_ascii_lowercase());
+            }
+        }
+    }
+
+    // 2. Fallback to a published checksum asset in the same release
+    let candidate_names = [
+        format!("{asset_filename}.sha256"),
+        format!("{asset_filename}.sha256sum"),
+        "SHA256SUMS.txt".to_string(),
+        "SHA256SUMS".to_string(),
+        "checksums.txt".to_string(),
+    ];
+
+    for asset in assets {
+        let name = asset["name"].as_str().unwrap_or("");
+        if candidate_names.iter().any(|c| c.eq_ignore_ascii_case(name)) {
+            if let Some(cs_url) = asset["browser_download_url"].as_str() {
+                if validate_update_url(cs_url).is_ok() {
+                    if let Ok(cs_resp) = client.get(cs_url).send().await {
+                        if cs_resp.status().is_success() {
+                            if let Ok(cs_text) = cs_resp.text().await {
+                                if let Some(hash) = parse_sha256_from_checksum_text(&cs_text, asset_filename) {
+                                    return Ok(hash);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Err("Refusing to install update: no published SHA-256 checksum found for this release asset.".to_string())
+}
+
 #[tauri::command]
 async fn install_app_update(download_url: String) -> Result<String, String> {
-    let trimmed_url = download_url.trim();
-    if !trimmed_url.starts_with("https://github.com/Coraje187/genesis-grid/releases/") {
-        return Err("Blocked untrusted update URL".to_string());
-    }
+    let parsed_url = validate_update_url(&download_url)?;
+    let validated_url = parsed_url.as_str().to_string();
 
     #[cfg(target_os = "linux")]
     {
+        use sha2::{Digest, Sha256};
+
+        let asset_filename = parsed_url
+            .path_segments()
+            .and_then(|s| s.last())
+            .ok_or_else(|| "Update URL missing asset filename".to_string())?
+            .to_string();
+
         let home = dirs::home_dir().ok_or("Cannot locate home directory")?;
         let target_dir = home.join(".local/share/genesis-grid");
         std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
@@ -3075,7 +3612,11 @@ async fn install_app_update(download_url: String) -> Result<String, String> {
             .build()
             .map_err(|e| e.to_string())?;
 
-        let res = client.get(trimmed_url).send().await.map_err(|e| e.to_string())?;
+        // Verify expected SHA-256 from GitHub release metadata before installing
+        let expected_sha256 =
+            fetch_expected_update_sha256(&client, &validated_url, &asset_filename).await?;
+
+        let res = client.get(&validated_url).send().await.map_err(|e| e.to_string())?;
         if !res.status().is_success() {
             return Err(format!("Download failed with status {}", res.status()));
         }
@@ -3084,7 +3625,23 @@ async fn install_app_update(download_url: String) -> Result<String, String> {
         if bytes.is_empty() {
             return Err("Downloaded update archive was empty".to_string());
         }
-        std::fs::write(&temp_appimage, bytes).map_err(|e| e.to_string())?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let actual_sha256: String = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+
+        if actual_sha256 != expected_sha256 {
+            let _ = std::fs::remove_file(&temp_appimage);
+            return Err(format!(
+                "Update integrity check failed: SHA-256 mismatch (expected {expected_sha256}, got {actual_sha256})"
+            ));
+        }
+
+        std::fs::write(&temp_appimage, &bytes).map_err(|e| e.to_string())?;
 
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(&temp_appimage).map_err(|e| e.to_string())?.permissions();
@@ -3092,12 +3649,12 @@ async fn install_app_update(download_url: String) -> Result<String, String> {
         std::fs::set_permissions(&temp_appimage, perms).map_err(|e| e.to_string())?;
         std::fs::rename(&temp_appimage, &target_appimage).map_err(|e| e.to_string())?;
 
-        Ok("Update downloaded successfully. Restart Genesis Grid to apply.".to_string())
+        Ok("Update downloaded and SHA-256 verified successfully. Restart Genesis Grid to apply.".to_string())
     }
 
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = open::that(trimmed_url);
+        let _ = open::that(&validated_url);
         Ok("Opened download in browser.".to_string())
     }
 }
@@ -3233,6 +3790,7 @@ fn main() {
         .manage(TelegramState {
             abort_handle: std::sync::Mutex::new(None),
         })
+        .manage(load_workspace_state())
         .invoke_handler(tauri::generate_handler![
             scan_system,
             model_catalog,
@@ -3267,10 +3825,12 @@ fn main() {
             open_url,
             load_genesis_wiki,
             save_genesis_wiki,
-                        get_downloads_folder,
+            get_downloads_folder,
             list_directory,
             get_file_tree,
             get_home_dir,
+            set_workspace_root,
+            get_workspace_root,
             read_file_text,
             write_file_text,
             run_command,

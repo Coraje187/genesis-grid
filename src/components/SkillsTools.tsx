@@ -228,18 +228,8 @@ export default function SkillsTools() {
   useEffect(() => {
     return () => {
       if (!hasLoadedRef.current) return;
-      // Auto-save when leaving settings screen
+      // Auto-save to secure Rust backend only (never duplicate API keys into localStorage)
       const current = getLatestSettings();
-      window.localStorage.setItem("freellmapi_unified_key", current.unifiedKey);
-      window.localStorage.setItem("freellmapi_default_model", current.defaultModel);
-      window.localStorage.setItem("freellmapi_openrouter_key", current.openrouterKey);
-      window.localStorage.setItem("freellmapi_openrouter_model", current.openrouterModel);
-      window.localStorage.setItem("freellmapi_openai_key", current.openaiKey);
-      window.localStorage.setItem("freellmapi_openai_model", current.openaiModel);
-      window.localStorage.setItem("freellmapi_gemini_key", current.geminiKey);
-      window.localStorage.setItem("freellmapi_gemini_model", current.geminiModel);
-      window.localStorage.setItem("freellmapi_custom_key", current.customKey);
-      window.localStorage.setItem("freellmapi_custom_url", current.customUrl);
 
       invoke("save_freellmapi_settings", {
         unifiedKey: current.unifiedKey,
@@ -266,7 +256,11 @@ export default function SkillsTools() {
         provider: "openrouter",
         directApiKey: current.openrouterKey,
         direct_api_key: current.openrouterKey,
-      }).catch(() => {});
+      })
+        .then(() => {
+          window.dispatchEvent(new Event("cloud-settings-updated"));
+        })
+        .catch(() => {});
     };
   }, []);
 
@@ -364,7 +358,16 @@ export default function SkillsTools() {
       .then(setTgRunning)
       .catch(() => {});
 
-    // Load Cloud Provider settings
+    // Purge any legacy plaintext API keys that may have been stored in localStorage
+    [
+      "freellmapi_unified_key",
+      "freellmapi_openrouter_key",
+      "freellmapi_openai_key",
+      "freellmapi_gemini_key",
+      "freellmapi_custom_key",
+    ].forEach((k) => window.localStorage.removeItem(k));
+
+    // Load Cloud Provider settings from Rust backend
     invoke<any>("load_freellmapi_settings")
       .then((s) => {
         if (s) {

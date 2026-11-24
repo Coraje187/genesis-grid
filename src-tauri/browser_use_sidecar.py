@@ -3,14 +3,34 @@ import json
 import asyncio
 import traceback
 
+import os
+
+PINNED_PACKAGES = [
+    "browser-use==0.1.40",
+    "langchain-openai==0.3.12",
+    "playwright==1.51.0",
+]
+
 def install_deps():
     try:
         import browser_use
         import langchain_openai
     except ImportError:
         import subprocess
-        print(json.dumps({"type": "progress", "message": "Installing browser-use and dependencies... this may take a moment."}))
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "browser-use", "langchain-openai", "playwright"])
+        print(json.dumps({"type": "progress", "message": "Installing pinned browser-use dependencies... this may take a moment."}))
+        req_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser_use_requirements.txt")
+        if os.path.isfile(req_file):
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install",
+                "--no-cache-dir", "--disable-pip-version-check",
+                "--require-hashes", "-r", req_file,
+            ])
+        else:
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install",
+                "--no-cache-dir", "--disable-pip-version-check",
+                *PINNED_PACKAGES,
+            ])
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
         print(json.dumps({"type": "progress", "message": "Dependencies installed!"}))
 

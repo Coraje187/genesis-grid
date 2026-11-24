@@ -36,47 +36,37 @@ export default function OnlineFallback() {
 
   useEffect(() => {
     refreshStatus();
-    const loadSettings = () => {
-      const localKey = window.localStorage.getItem("freellmapi_unified_key") || "";
-      const localModel = window.localStorage.getItem("freellmapi_default_model") || "";
-      const localOpenrouterKey = window.localStorage.getItem("freellmapi_openrouter_key") || "";
-      const localOpenaiKey = window.localStorage.getItem("freellmapi_openai_key") || "";
-      const localGeminiKey = window.localStorage.getItem("freellmapi_gemini_key") || "";
 
-      setUnifiedKey(localKey);
-      setDefaultModel(localModel);
-      setOpenrouterKey(localOpenrouterKey);
-      setOpenaiKey(localOpenaiKey);
-      setGeminiKey(localGeminiKey);
+    // Purge any legacy plaintext API keys that may have been stored in localStorage
+    [
+      "freellmapi_unified_key",
+      "freellmapi_openrouter_key",
+      "freellmapi_openai_key",
+      "freellmapi_gemini_key",
+      "freellmapi_custom_key",
+    ].forEach((k) => window.localStorage.removeItem(k));
+
+    const loadSettings = () => {
+      invoke<any>("load_freellmapi_settings")
+        .then((s) => {
+          if (s) {
+            const keyVal = s.unified_key ?? s.unifiedKey ?? "";
+            const modelVal = s.default_model ?? s.defaultModel ?? "";
+            const orKey = s.openrouter_key ?? s.openrouterKey ?? "";
+            const oaKey = s.openai_key ?? s.openaiKey ?? "";
+            const gemKey = s.gemini_key ?? s.geminiKey ?? "";
+
+            setUnifiedKey(keyVal);
+            setDefaultModel(modelVal);
+            setOpenrouterKey(orKey);
+            setOpenaiKey(oaKey);
+            setGeminiKey(gemKey);
+          }
+        })
+        .catch(() => {});
     };
 
     loadSettings();
-
-    invoke<any>("load_freellmapi_settings")
-      .then((s) => {
-        if (s) {
-          const keyVal = s.unified_key ?? s.unifiedKey ?? "";
-          const modelVal = s.default_model ?? s.defaultModel ?? "";
-          const orKey = s.openrouter_key ?? s.openrouterKey ?? "";
-          const oaKey = s.openai_key ?? s.openaiKey ?? "";
-          const gemKey = s.gemini_key ?? s.geminiKey ?? "";
-
-          setUnifiedKey(keyVal);
-          setDefaultModel(modelVal);
-          setOpenrouterKey(orKey);
-          setOpenaiKey(oaKey);
-          setGeminiKey(gemKey);
-
-          window.localStorage.setItem("freellmapi_unified_key", keyVal);
-          window.localStorage.setItem("freellmapi_default_model", modelVal);
-          window.localStorage.setItem("freellmapi_openrouter_key", orKey);
-          window.localStorage.setItem("freellmapi_openai_key", oaKey);
-          window.localStorage.setItem("freellmapi_gemini_key", gemKey);
-        }
-      })
-      .catch((e) => {
-        // If the Tauri backend load command is missing, we just silently rely on localStorage.
-      });
 
     const unlisten = listen<SetupProgress>("freellmapi-setup-progress", (event) => {
       setProgress(event.payload);
@@ -86,68 +76,47 @@ export default function OnlineFallback() {
       }
     });
 
-    window.addEventListener("storage", loadSettings);
+    window.addEventListener("cloud-settings-updated", loadSettings);
     return () => {
-      window.removeEventListener("storage", loadSettings);
+      window.removeEventListener("cloud-settings-updated", loadSettings);
       unlisten.then((f) => f());
     };
   }, []);
 
   function persistSettings(key: string, model: string) {
-    // Write to localStorage immediately
-    window.localStorage.setItem("freellmapi_unified_key", key);
-    window.localStorage.setItem("freellmapi_default_model", model);
-
-    const orKey = window.localStorage.getItem("freellmapi_openrouter_key") || "";
-    const orModel = window.localStorage.getItem("freellmapi_openrouter_model") || "";
-    const oaKey = window.localStorage.getItem("freellmapi_openai_key") || "";
-    const oaModel = window.localStorage.getItem("freellmapi_openai_model") || "";
-    const gemKey = window.localStorage.getItem("freellmapi_gemini_key") || "";
-    const gemModel = window.localStorage.getItem("freellmapi_gemini_model") || "";
-    const custKey = window.localStorage.getItem("freellmapi_custom_key") || "";
-    const custUrl = window.localStorage.getItem("freellmapi_custom_url") || "";
-
-    invoke("save_freellmapi_settings", { 
-      unifiedKey: key, 
-      unified_key: key, 
-      defaultModel: model, 
+    invoke("save_freellmapi_settings", {
+      unifiedKey: key,
+      unified_key: key,
+      defaultModel: model,
       default_model: model,
-      openrouterKey: orKey,
-      openrouter_key: orKey,
-      openrouterModel: orModel,
-      openrouter_model: orModel,
-      openaiKey: oaKey,
-      openai_key: oaKey,
-      openaiModel: oaModel,
-      openai_model: oaModel,
-      geminiKey: gemKey,
-      gemini_key: gemKey,
-      geminiModel: gemModel,
-      gemini_model: gemModel,
-      customKey: custKey,
-      custom_key: custKey,
-      customUrl: custUrl,
-      custom_url: custUrl,
+      openrouterKey: openrouterKey,
+      openrouter_key: openrouterKey,
+      openrouterModel: "",
+      openrouter_model: "",
+      openaiKey: openaiKey,
+      openai_key: openaiKey,
+      openaiModel: "",
+      openai_model: "",
+      geminiKey: geminiKey,
+      gemini_key: geminiKey,
+      geminiModel: "",
+      gemini_model: "",
+      customKey: "",
+      custom_key: "",
+      customUrl: "",
+      custom_url: "",
       mode: "proxy",
-      provider: "freellmapi"
+      provider: "freellmapi",
     })
       .then(() => {
         setSettingsError("");
         setSaveSuccess(true);
+        window.dispatchEvent(new Event("cloud-settings-updated"));
         setTimeout(() => setSaveSuccess(false), 3000);
       })
       .catch((e) => {
-        const errStr = String(e);
-        if (errStr.includes("not found")) {
-          // If the Tauri command is not found in the current build, we suppress the error
-          // since the key is successfully saved in localStorage and will function fine.
-          setSettingsError("");
-          setSaveSuccess(true);
-          setTimeout(() => setSaveSuccess(false), 3000);
-        } else {
-          setSettingsError(`Couldn't save: ${e}`);
-          setSaveSuccess(false);
-        }
+        setSettingsError(`Couldn't save: ${e}`);
+        setSaveSuccess(false);
       });
   }
 

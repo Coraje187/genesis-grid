@@ -154,11 +154,32 @@ export default function Notebook() {
       try {
         const output = await invoke<string>("run_code_sandbox", { 
           language: cell.language, 
-          code: cell.content 
+          code: cell.content,
+          allowUnsandboxed: false
         });
         updateCell(cellId, { isRunning: false, output });
       } catch (err: any) {
-        updateCell(cellId, { isRunning: false, output: err.toString() });
+        const errStr = err.toString();
+        if (errStr.includes("DOCKER_UNAVAILABLE")) {
+          const optIn = window.confirm(
+            "Docker is not running. Running code without Docker executes it UNSANDBOXED directly on your host machine.\n\nDo you want to explicitly allow unsandboxed execution for this cell?"
+          );
+          if (optIn) {
+            try {
+              const output = await invoke<string>("run_code_sandbox", {
+                language: cell.language,
+                code: cell.content,
+                allowUnsandboxed: true
+              });
+              updateCell(cellId, { isRunning: false, output });
+              return;
+            } catch (err2: any) {
+              updateCell(cellId, { isRunning: false, output: err2.toString() });
+              return;
+            }
+          }
+        }
+        updateCell(cellId, { isRunning: false, output: errStr });
       }
     } else if (cell.type === "chat") {
       try {

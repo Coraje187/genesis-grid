@@ -1624,7 +1624,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-grid"
-version = "3.4.11"
+version = "3.6.1"
 dependencies = [
  "base64 0.21.7",
  "dirs",
@@ -1636,10 +1636,12 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "tauri",
  "tauri-build",
  "tokio",
+ "url",
  "urlencoding",
  "walkdir",
  "windows 0.58.0",

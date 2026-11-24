@@ -494,8 +494,10 @@ export default function Chat({
     loadSettings();
 
     window.addEventListener("storage", loadSettings);
+    window.addEventListener("cloud-settings-updated", loadSettings);
     return () => {
       window.removeEventListener("storage", loadSettings);
+      window.removeEventListener("cloud-settings-updated", loadSettings);
     };
   }, []);
 
@@ -811,18 +813,19 @@ Respond ONLY with the raw updated markdown content. Do not include chat intro/ou
         setLoopIterations(prev => prev + 1);
       }
 
-      // DUAL AI SECURITY OVERSEER INTERCEPT
+      // DUAL AI SECURITY OVERSEER INTERCEPT (fail-closed)
       const dualAIEnabled = window.localStorage.getItem("genesis_dual_ai_enabled") === "true";
       const dualAIProvider = window.localStorage.getItem("genesis_dual_ai_provider") || "gemini";
-      
-      const dangerousCommands = ["rm", "del", "format", "npm publish", "drop", "truncate"];
-      const codeOrCmd = (args.command || args.code || args.content || "").toLowerCase();
+
+      const codeOrCmd = String(args.command || args.code || args.content || "");
 
       if (dualAIEnabled && (name === "run_command" || name === "run_notebook_cell" || name === "write_file_text")) {
-         setMessages([...messageHistory, { role: "system" as const, content: "🛡️ Dual AI Security Overseer is analyzing command..." }]);
-         const overseerPrompt = `You are a strict Cyber Security Overseer. Analyze this command/code for a local Windows PC.
-Does it attempt to escalate privileges, format drives, drop database tables, delete critical user files, or execute known malware payloads?
-Command/Code to analyze:
+         setMessages([...messageHistory, { role: "system" as const, content: "🛡️ Dual AI Security Overseer is analyzing action..." }]);
+         const overseerPrompt = `You are a strict Cyber Security Overseer. Analyze this tool action for a local desktop PC.
+Tool: ${name}
+Target Path: ${args.path || "(n/a)"}
+Does it attempt to escalate privileges, exfiltrate files/secrets, format drives, drop database tables, delete critical user files, or execute untrusted/malicious payloads?
+Command/Code/Content to analyze:
 ${codeOrCmd}
 
 Reply strictly with exactly one word: 'SAFE' if benign, or 'THREAT' if dangerous.`;
@@ -842,38 +845,42 @@ Reply strictly with exactly one word: 'SAFE' if benign, or 'THREAT' if dangerous
             // Remove the loading message
             setMessages([...messageHistory]);
 
-            if (reply.includes("THREAT")) {
-               setMessages([...messageHistory, { role: "system" as const, content: "🛡️ Execution BLOCKED by Dual-AI Security Overseer (Threat Detected)." }]);
+            const verdict = (reply || "").trim().toUpperCase();
+            if (!verdict.startsWith("SAFE") || verdict.includes("THREAT")) {
+               const blockMsg = "🛡️ Execution BLOCKED by Dual-AI Security Overseer (Threat Detected or Unverified Verdict).";
+               setMessages([...messageHistory, { role: "system" as const, content: blockMsg }]);
                setAutoExecToolCall(null);
                if (isLoopMode && loopStateRef.current !== "idle") {
-                  runLoopStep(loopStateRef.current as "architect" | "oracle" | "cipher", "", [], [...messageHistory, { role: "system" as const, content: "Execution BLOCKED by Security Overseer." }]);
+                  runLoopStep(loopStateRef.current as "architect" | "oracle" | "cipher", "", [], [...messageHistory, { role: "system" as const, content: blockMsg }]);
                }
                return;
             }
          } catch (e) {
-            // Remove the loading message on failure
-            setMessages([...messageHistory]);
-            console.error("Overseer API Error", e);
+            // Fail closed on Overseer error
+            console.error("Overseer API Error (failing closed)", e);
+            const errMsg = `🛡️ Execution BLOCKED: Dual-AI Security Overseer failed to verify this action (${e}). Failing closed for safety.`;
+            setMessages([...messageHistory, { role: "system" as const, content: errMsg }]);
+            setAutoExecToolCall(null);
+            if (isLoopMode && loopStateRef.current !== "idle") {
+               runLoopStep(loopStateRef.current as "architect" | "oracle" | "cipher", "", [], [...messageHistory, { role: "system" as const, content: errMsg }]);
+            }
+            return;
          }
       }
 
-      // HITL APPROVAL (CVE-2026-7209)
-      if (name === "run_command" || name === "run_notebook_cell") {
-        const isDangerous = dangerousCommands.some(cmd => codeOrCmd.includes(cmd));
-        if (isDangerous) {
-          const approved = window.confirm(`Genesis Security Alert: The agent wants to execute a potentially dangerous command:
-
-${codeOrCmd}
-
-Do you want to allow this?`);
-          if (!approved) {
-             setMessages([...messageHistory, { role: "system" as const, content: "Execution denied by user." }]);
-             setAutoExecToolCall(null);
-             if (isLoopMode && loopStateRef.current !== "idle") {
-                runLoopStep(loopStateRef.current as "architect" | "oracle" | "cipher", "", [], [...messageHistory, { role: "system" as const, content: "Execution denied by user." }]);
-             }
-             return;
-          }
+      // MANDATORY HITL APPROVAL for all shell commands and file writes (no blocklist bypass)
+      if (name === "run_command" || name === "write_file_text") {
+        const detail = name === "run_command"
+          ? `Command:\n${args.command || ""}`
+          : `Write File:\n${args.path || ""}\n\nContent preview:\n${String(args.content || "").slice(0, 300)}`;
+        const approved = window.confirm(`Genesis Security Confirmation: The agent wants to execute '${name}':\n\n${detail}\n\nDo you explicitly approve this action?`);
+        if (!approved) {
+           setMessages([...messageHistory, { role: "system" as const, content: `Execution of '${name}' denied by user.` }]);
+           setAutoExecToolCall(null);
+           if (isLoopMode && loopStateRef.current !== "idle") {
+              runLoopStep(loopStateRef.current as "architect" | "oracle" | "cipher", "", [], [...messageHistory, { role: "system" as const, content: `Execution of '${name}' denied by user.` }]);
+           }
+           return;
         }
       }
 
@@ -888,7 +895,7 @@ Do you want to allow this?`);
           output = await invoke("search_codebase", { directoryPath: args.directory_path || "", regexPattern: args.regex_pattern || "" });
         } else if (name === "run_notebook_cell") {
           z.object({ language: z.string().optional(), code: z.string().optional() }).parse(args);
-          output = await invoke("run_code_sandbox", { language: args.language || "python", code: args.code || "" });
+          output = await invoke("run_code_sandbox", { language: args.language || "python", code: args.code || "", allowUnsandboxed: false });
         } else if (name === "create_kanban_card") {
           z.object({ column: z.string(), title: z.string().optional(), description: z.string().optional() }).parse(args);
           const json = await invoke<string>("load_kanban_config");
@@ -1151,6 +1158,58 @@ ${DEFENSIVE_SYSTEM_PROMPT_GUARDRAIL}`
   async function handleApproveTool() {
     if (!pendingToolCall) return;
     const { name, args, messageHistory } = pendingToolCall;
+
+    // Optional Dual-AI Security Overseer check (fail-closed)
+    const dualAIEnabled = window.localStorage.getItem("genesis_dual_ai_enabled") === "true";
+    const dualAIProvider = window.localStorage.getItem("genesis_dual_ai_provider") || "gemini";
+    if (dualAIEnabled && (name === "run_command" || name === "write_file_text" || name === "run_notebook_cell")) {
+      const codeOrCmd = String(args?.command || args?.code || args?.content || "");
+      const overseerPrompt = `You are a strict Cyber Security Overseer. Analyze this tool action for a local desktop PC.
+Tool: ${name}
+Target Path: ${args?.path || "(n/a)"}
+Does it attempt to escalate privileges, exfiltrate files/secrets, format drives, drop database tables, delete critical user files, or execute untrusted/malicious payloads?
+Command/Code/Content to analyze:
+${codeOrCmd}
+
+Reply strictly with exactly one word: 'SAFE' if benign, or 'THREAT' if dangerous.`;
+
+      try {
+        let targetModel = "auto";
+        if (dualAIProvider === "gemini") targetModel = "gemini-1.5-flash";
+        if (dualAIProvider === "openai") targetModel = "gpt-4o-mini";
+
+        const reply = await invoke<string>("chat_via_cloud", {
+          provider: dualAIProvider,
+          model: targetModel,
+          message: overseerPrompt,
+        });
+        const verdict = (reply || "").trim().toUpperCase();
+        if (!verdict.startsWith("SAFE") || verdict.includes("THREAT")) {
+          setPendingToolCall(null);
+          setMessages([...messageHistory, { role: "system" as const, content: "🛡️ Execution BLOCKED by Dual-AI Security Overseer (Threat Detected or Unverified Verdict)." }]);
+          setSending(false);
+          return;
+        }
+      } catch (e) {
+        console.error("Overseer API Error (failing closed)", e);
+        setPendingToolCall(null);
+        setMessages([...messageHistory, { role: "system" as const, content: `🛡️ Execution BLOCKED: Dual-AI Security Overseer failed to verify this action (${e}). Failing closed for safety.` }]);
+        setSending(false);
+        return;
+      }
+    }
+
+    // Explicit secondary confirmation for shell commands and file writes
+    if (name === "run_command" || name === "write_file_text") {
+      const detail = name === "run_command"
+        ? `Command:\n${args?.command || ""}`
+        : `Write File:\n${args?.path || ""}\n\nContent preview:\n${String(args?.content || "").slice(0, 300)}`;
+      const confirmed = window.confirm(`Confirm execution of '${name}':\n\n${detail}`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
     setPendingToolCall(null);
     setSending(true);
 
